@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.commit451.drebin451",
+      "sha256_cert_fingerprints": [
+        "45:72:46:AE:AB:AE:56:BA:40:60:A4:D6:49:6E:C6:F6:54:0F:0C:0F:9C:40:9F:BA:ED:73:EE:1D:A1:E3:CB:48"
+      ]
+    }
+  }
+]

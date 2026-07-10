@@ -1,0 +1,321 @@
+:root {
+    --drebin-background: #0D1517;
+    --drebin-gradient-top: #203942;
+    --drebin-gradient-bottom: #333D3D;
+    --drebin-surface: rgba(34, 48, 51, 0.88);
+    --drebin-surface-strong: rgba(44, 59, 63, 0.92);
+    --drebin-field: rgba(13, 21, 23, 0.72);
+    --drebin-stroke: rgba(139, 154, 157, 0.42);
+    --drebin-stroke-strong: rgba(168, 200, 212, 0.58);
+    --drebin-text: #EDF5F6;
+    --drebin-muted: #C4D1D3;
+    --drebin-muted-soft: #8B9A9D;
+    --drebin-accent: #A8C8D4;
+    --drebin-on-accent: #0B2932;
+    --drebin-error: #FFB4A9;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: var(--drebin-background);
+    color: var(--drebin-text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: 0;
+}
+
+body {
+    background:
+        radial-gradient(circle at 14% 8%, rgba(168, 200, 212, 0.20), transparent 28rem),
+        linear-gradient(180deg, var(--drebin-gradient-top) 0%, var(--drebin-gradient-bottom) 100%);
+}
+
+canvas {
+    background: var(--drebin-background);
+    display: block;
+}
+
+.compose-root {
+    width: 100%;
+    height: 100%;
+}
+
+button,
+input {
+    font: inherit;
+    letter-spacing: 0;
+}
+
+button {
+    cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+    cursor: progress;
+}
+
+body.drebin-auth-active .compose-root {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.auth-screen[hidden] {
+    display: none !important;
+}
+
+.auth-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    overflow: auto;
+    box-sizing: border-box;
+    padding: 24px;
+    background:
+        radial-gradient(circle at 20% 12%, rgba(237, 245, 246, 0.14), transparent 26rem),
+        radial-gradient(circle at 86% 86%, rgba(168, 200, 212, 0.16), transparent 24rem),
+        linear-gradient(180deg, var(--drebin-gradient-top) 0%, var(--drebin-gradient-bottom) 100%);
+}
+
+.auth-shell {
+    width: min(100%, 444px);
+    box-sizing: border-box;
+    padding: 32px;
+    border: 1px solid var(--drebin-stroke);
+    border-radius: 28px;
+    background: var(--drebin-surface);
+    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.34);
+    backdrop-filter: blur(18px);
+}
+
+.auth-brand {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.auth-logo {
+    display: block;
+    width: 56px;
+    height: 56px;
+    flex: 0 0 56px;
+    border-radius: 18px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+}
+
+.auth-product {
+    margin-bottom: 3px;
+    color: var(--drebin-accent);
+    font-size: 0.92rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+}
+
+.auth-brand h1 {
+    margin: 0;
+    color: var(--drebin-text);
+    font-size: clamp(1.86rem, 5vw, 2.18rem);
+    line-height: 1.06;
+    font-weight: 820;
+}
+
+.auth-copy {
+    margin: 20px 0 26px;
+    color: var(--drebin-muted);
+    font-size: 1rem;
+    line-height: 1.52;
+}
+
+.auth-form {
+    display: grid;
+    gap: 14px;
+}
+
+.auth-field {
+    display: grid;
+    gap: 8px;
+    color: var(--drebin-muted);
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.auth-field input {
+    width: 100%;
+    min-height: 52px;
+    box-sizing: border-box;
+    border: 1px solid var(--drebin-stroke);
+    border-radius: 16px;
+    padding: 0 14px;
+    background: var(--drebin-field);
+    color: var(--drebin-text);
+    outline: none;
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.auth-field input:focus {
+    border-color: var(--drebin-accent);
+    background: rgba(13, 21, 23, 0.84);
+    box-shadow: 0 0 0 4px rgba(168, 200, 212, 0.18);
+}
+
+.auth-field input:disabled {
+    opacity: 0.74;
+}
+
+.auth-primary,
+.auth-google {
+    width: 100%;
+    min-height: 50px;
+    box-sizing: border-box;
+    border-radius: 18px;
+    font-weight: 800;
+    transition: transform 150ms ease, border-color 150ms ease, background-color 150ms ease, opacity 150ms ease;
+}
+
+.auth-primary {
+    margin-top: 4px;
+    border: 1px solid var(--drebin-accent);
+    background: var(--drebin-accent);
+    color: var(--drebin-on-accent);
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.22);
+}
+
+.auth-primary:hover:not(:disabled),
+.auth-google:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+.auth-primary:disabled {
+    opacity: 0.72;
+}
+
+.auth-forgot {
+    width: 100%;
+    min-height: 36px;
+    margin-top: 10px;
+    border: 0;
+    background: transparent;
+    color: var(--drebin-accent);
+    font-weight: 800;
+}
+
+.auth-forgot:disabled {
+    opacity: 0.72;
+}
+
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 22px 0;
+    color: var(--drebin-muted-soft);
+    font-size: 0.82rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+    content: "";
+    height: 1px;
+    flex: 1;
+    background: var(--drebin-stroke);
+}
+
+.auth-google {
+    border: 1px solid var(--drebin-stroke);
+    background: var(--drebin-surface-strong);
+    color: var(--drebin-text);
+}
+
+.auth-google:hover:not(:disabled) {
+    border-color: var(--drebin-stroke-strong);
+}
+
+.auth-google:disabled {
+    opacity: 0.72;
+}
+
+.auth-toggle {
+    width: 100%;
+    min-height: 42px;
+    margin-top: 12px;
+    border: 0;
+    background: transparent;
+    color: var(--drebin-accent);
+    font-weight: 800;
+}
+
+.auth-toggle:disabled {
+    opacity: 0.72;
+}
+
+.auth-error {
+    min-height: 18px;
+    margin: 12px 0 0;
+    color: var(--drebin-error);
+    font-size: 0.88rem;
+    line-height: 1.35;
+    text-align: center;
+}
+
+.auth-error:empty {
+    display: none;
+}
+
+.auth-message {
+    min-height: 18px;
+    margin: 12px 0 0;
+    color: var(--drebin-accent);
+    font-size: 0.88rem;
+    line-height: 1.35;
+    text-align: center;
+}
+
+.auth-message:empty {
+    display: none;
+}
+
+.auth-legal {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+    color: var(--drebin-muted-soft);
+    font-size: 0.84rem;
+}
+
+.auth-legal a {
+    color: var(--drebin-muted);
+    text-decoration: none;
+}
+
+.auth-legal a:hover,
+.auth-legal a:focus {
+    color: var(--drebin-accent);
+    text-decoration: underline;
+}
+
+@media (max-width: 520px) {
+    .auth-screen {
+        align-items: stretch;
+        padding: 16px;
+    }
+
+    .auth-shell {
+        width: 100%;
+        min-height: calc(100vh - 32px);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 24px;
+        border-radius: 24px;
+    }
+}

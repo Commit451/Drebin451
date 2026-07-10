@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Local FCM topic state is device-local and must not survive uninstall/reinstall. -->
+    <exclude
+        domain="root"
+        path="." />
+</full-backup-content>
