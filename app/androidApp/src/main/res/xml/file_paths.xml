@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><!-- Exposes cacheDir/apks (where ApkInstaller downloads APKs) to the FileProvider so the system
+     installer can read them via content:// URIs. -->
+<paths>
+    <cache-path
+        name="apks"
+        path="apks/" />
+</paths>

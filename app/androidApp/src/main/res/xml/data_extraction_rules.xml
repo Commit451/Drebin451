@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Disable cloud backup contents so notification follow state cannot be restored. -->
+        <exclude
+            domain="root"
+            path="." />
+    </cloud-backup>
+    <device-transfer>
+        <!-- Also exclude device-to-device transfer on Android 12+. -->
+        <exclude
+            domain="root"
+            path="." />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,7 @@
+# The image only needs the prebuilt fat jar and Dockerfile. In particular, never send ignored
+# Firebase Admin credentials or source-tree configuration to the Docker daemon.
+**
+!Dockerfile
+!build/
+!build/libs/
+!build/libs/*-all.jar

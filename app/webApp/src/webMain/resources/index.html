@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Drebin451</title>
+    <link href="styles.css" rel="stylesheet" type="text/css">
+
+    <link href="favicon.ico" rel="icon" sizes="any">
+    <link href="apple-touch-icon.png" rel="apple-touch-icon">
+    <link href="manifest.json" rel="manifest">
+
+    <script>
+        // Keeps Compose Navigation's in-memory stack in sync with the browser Back button.
+        // Kotlin/JS and Kotlin/Wasm both call these globals from their platform actuals.
+        (function () {
+            var backHandlers = [];
+
+            function nextDrebinHistoryState() {
+                return {
+                    drebin451: true,
+                    id: Date.now().toString(36) + Math.random().toString(36).slice(2)
+                };
+            }
+
+            window.drebinPushBrowserHistoryEntry = function () {
+                window.history.pushState(nextDrebinHistoryState(), '', window.location.href);
+            };
+
+            window.drebinReplaceBrowserHistoryEntry = function () {
+                window.history.replaceState(nextDrebinHistoryState(), '', window.location.href);
+            };
+
+            window.drebinRequestBrowserBack = function () {
+                window.history.back();
+                return true;
+            };
+
+            window.drebinInstallBrowserBackHandler = function (handler) {
+                backHandlers.push(handler);
+                return function () {
+                    var index = backHandlers.indexOf(handler);
+                    if (index >= 0) backHandlers.splice(index, 1);
+                };
+            };
+
+            window.addEventListener('popstate', function (event) {
+                backHandlers.slice().forEach(function (handler) { handler(event); });
+            });
+        })();
+
+        // Browser-native auth screen. Kotlin installs callbacks when Compose Navigation reaches
+        // LoginRoute; this page owns the real form fields so password managers can detect, fill,
+        // and save credentials normally.
+        (function () {
+            var elements = null;
+            var emailSubmit = null;
+            var forgotPasswordSubmit = null;
+            var googleSubmit = null;
+            var registerMode = false;
+            var busy = false;
+
+            function byId(id) {
+                return document.getElementById(id);
+            }
+
+            function authElements() {
+                if (elements) return elements;
+                elements = {
+                    screen: byId('drebin-auth-screen'),
+                    form: byId('drebin-auth-form'),
+                    title: byId('drebin-auth-title'),
+                    copy: byId('drebin-auth-copy'),
+                    email: byId('drebin-auth-email'),
+                    password: byId('drebin-auth-password'),
+                    submit: byId('drebin-auth-submit'),
+                    forgot: byId('drebin-auth-forgot'),
+                    google: byId('drebin-auth-google'),
+                    toggle: byId('drebin-auth-toggle'),
+                    error: byId('drebin-auth-error'),
+                    message: byId('drebin-auth-message')
+                };
+
+                elements.form.addEventListener('submit', function (event) {
+                    event.preventDefault();
+                    if (!emailSubmit || busy) return;
+                    if (!elements.form.reportValidity()) return;
+                    window.drebinAuthSetState(true, '', '');
+                    emailSubmit();
+                });
+
+                elements.google.addEventListener('click', function () {
+                    if (!googleSubmit || busy) return;
+                    window.drebinAuthSetState(true, '', '');
+                    googleSubmit();
+                });
+
+                elements.forgot.addEventListener('click', function () {
+                    if (!forgotPasswordSubmit || busy) return;
+                    if (!elements.email.reportValidity()) return;
+                    window.drebinAuthSetState(true, '', '');
+                    forgotPasswordSubmit();
+                });
+
+                elements.toggle.addEventListener('click', function () {
+                    if (busy) return;
+                    setMode(!registerMode);
+                    window.drebinAuthSetState(false, '', '');
+                    elements.password.focus({ preventScroll: true });
+                });
+
+                return elements;
+            }
+
+            function setVisible(visible) {
+                var el = authElements();
+                el.screen.hidden = !visible;
+                el.screen.setAttribute('aria-hidden', visible ? 'false' : 'true');
+                document.body.classList.toggle('drebin-auth-active', visible);
+            }
+
+            function setMode(nextRegisterMode) {
+                var el = authElements();
+                registerMode = Boolean(nextRegisterMode);
+                el.screen.dataset.mode = registerMode ? 'signup' : 'signin';
+                el.title.textContent = registerMode ? 'Create your account' : 'Sign in';
+                el.copy.textContent = registerMode
+                    ? 'Upload and share Android releases from your own private app shelf.'
+                    : 'Upload and share Android releases from your own private app shelf.';
+                el.password.autocomplete = registerMode ? 'new-password' : 'current-password';
+                el.submit.textContent = registerMode ? 'Create Account' : 'Sign In';
+                el.forgot.hidden = registerMode;
+                el.toggle.textContent = registerMode
+                    ? 'Already have an account? Sign in'
+                    : 'Need an account? Sign up';
+            }
+
+            window.drebinAuthInstall = function (startOnSignUp, onEmailSubmit, onForgotPassword, onGoogleSubmit) {
+                emailSubmit = onEmailSubmit;
+                forgotPasswordSubmit = onForgotPassword;
+                googleSubmit = onGoogleSubmit;
+                setMode(Boolean(startOnSignUp));
+                window.drebinAuthSetState(false, '', '');
+                setVisible(true);
+                requestAnimationFrame(function () {
+                    var el = authElements();
+                    if (!el.email.value) {
+                        el.email.focus({ preventScroll: true });
+                    }
+                });
+                return function () {
+                    emailSubmit = null;
+                    forgotPasswordSubmit = null;
+                    googleSubmit = null;
+                    setVisible(false);
+                    window.drebinAuthSetState(false, '', '');
+                };
+            };
+
+            window.drebinAuthEmail = function () {
+                return authElements().email.value;
+            };
+
+            window.drebinAuthPassword = function () {
+                return authElements().password.value;
+            };
+
+            window.drebinAuthRegister = function () {
+                return registerMode;
+            };
+
+            window.drebinAuthSetState = function (nextBusy, errorMessage, successMessage) {
+                var el = authElements();
+                busy = Boolean(nextBusy);
+                el.email.disabled = busy;
+                el.password.disabled = busy;
+                el.submit.disabled = busy;
+                el.forgot.disabled = busy;
+                el.google.disabled = busy;
+                el.toggle.disabled = busy;
+                el.submit.textContent = busy
+                    ? (registerMode ? 'Creating Account...' : 'Working...')
+                    : (registerMode ? 'Create Account' : 'Sign In');
+                el.google.textContent = busy ? 'Working...' : 'Continue with Google';
+                el.error.textContent = errorMessage || '';
+                el.message.textContent = successMessage || '';
+            };
+        })();
+
+        // Opens the browser file dialog (filtered to .apk), reads the chosen file, and hands it back
+        // to the Kotlin web app (js + wasmJs) as the filename, a newline, then the base64 bytes — or
+        // an empty string if the dialog was dismissed. FileReader.readAsDataURL lets the browser do
+        // the base64 natively (fast for large APKs); the Kotlin side splits on the first newline
+        // (never present in a filename) and decodes. Kept in plain JS so the FileReader bits live in
+        // one readable place for both targets.
+        window.drebinPickApk = function () {
+            return new Promise(function (resolve, reject) {
+                var input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.apk,application/vnd.android.package-archive';
+                input.style.display = 'none';
+
+                var settled = false;
+                function finish(fn, value) {
+                    if (settled) return;
+                    settled = true;
+                    if (input.parentNode) input.parentNode.removeChild(input);
+                    fn(value);
+                }
+
+                // 'cancel' fires (modern browsers) when the dialog is closed with nothing chosen.
+                input.addEventListener('cancel', function () { finish(resolve, ''); });
+                input.addEventListener('change', function () {
+                    var file = input.files && input.files[0];
+                    if (!file) { finish(resolve, ''); return; }
+                    var reader = new FileReader();
+                    reader.onload = function () {
+                        // result is a data: URL — strip the "data:<type>;base64," prefix.
+                        var result = String(reader.result);
+                        var comma = result.indexOf(',');
+                        var base64 = comma >= 0 ? result.substring(comma + 1) : '';
+                        finish(resolve, file.name + '\n' + base64);
+                    };
+                    reader.onerror = function () {
+                        finish(reject, reader.error || new Error("Could not read the selected file."));
+                    };
+                    reader.readAsDataURL(file);
+                });
+
+                // Some browsers only fire 'click' reliably when the input is in the DOM.
+                document.body.appendChild(input);
+                input.click();
+            });
+        };
+
+        // Starts a browser download for APK bytes that the Kotlin app already fetched through the
+        // authenticated API. Kept in plain JS so both Kotlin/JS and Kotlin/Wasm can share it.
+        window.drebinDownloadApk = function (fileName, contentType, base64) {
+            var binary = atob(String(base64 || ''));
+            var bytes = new Uint8Array(binary.length);
+            for (var i = 0; i < binary.length; i += 1) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+
+            var blob = new Blob([bytes], {
+                type: contentType || 'application/vnd.android.package-archive'
+            });
+            var url = URL.createObjectURL(blob);
+            var anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = fileName || 'app.apk';
+            anchor.style.display = 'none';
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
+            window.setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        };
+    </script>
+</head>
+<body>
+<div class="compose-root" id="compose-root"></div>
+
+<main aria-hidden="true" class="auth-screen" hidden id="drebin-auth-screen">
+    <section aria-labelledby="drebin-auth-title" class="auth-shell">
+        <div class="auth-brand">
+            <img alt="" aria-hidden="true" class="auth-logo" height="56" src="drebin451-logo.png"
+                 width="56">
+            <div>
+                <div class="auth-product">Drebin451</div>
+                <h1 id="drebin-auth-title">Sign in</h1>
+            </div>
+        </div>
+        <p class="auth-copy" id="drebin-auth-copy">
+            Upload and share Android releases from your own private app shelf.
+        </p>
+
+        <form autocomplete="on" class="auth-form" id="drebin-auth-form">
+            <label class="auth-field" for="drebin-auth-email">
+                <span>Email</span>
+                <input
+                        autocomplete="username"
+                        id="drebin-auth-email"
+                        inputmode="email"
+                        name="email"
+                        required
+                        type="email"
+                >
+            </label>
+
+            <label class="auth-field" for="drebin-auth-password">
+                <span>Password</span>
+                <input
+                        autocomplete="current-password"
+                        id="drebin-auth-password"
+                        minlength="6"
+                        name="password"
+                        required
+                        type="password"
+                >
+            </label>
+
+            <button class="auth-primary" id="drebin-auth-submit" type="submit">Sign In</button>
+        </form>
+
+        <button class="auth-forgot" id="drebin-auth-forgot" type="button">
+            Forgot password?
+        </button>
+
+        <div class="auth-divider" role="presentation"><span>or</span></div>
+
+        <button class="auth-google" id="drebin-auth-google" type="button">
+            Continue with Google
+        </button>
+
+        <button class="auth-toggle" id="drebin-auth-toggle" type="button">
+            Need an account? Sign up
+        </button>
+        <p aria-live="polite" class="auth-message" id="drebin-auth-message" role="status"></p>
+        <p aria-live="polite" class="auth-error" id="drebin-auth-error" role="alert"></p>
+
+        <nav aria-label="Legal" class="auth-legal">
+            <a href="https://commit451.com/privacy/">Privacy Policy</a>
+            <span aria-hidden="true">|</span>
+            <a href="https://commit451.com/terms/">Terms</a>
+        </nav>
+    </section>
+</main>
+
+<script src="webApp.js" type="application/javascript"></script>
+</body>
+</html>

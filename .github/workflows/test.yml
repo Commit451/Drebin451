@@ -1,0 +1,26 @@
+name: 🧪 Tests
+on:
+  pull_request:
+    branches:
+      - 'main'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Never expose production credentials to pull_request workflows. Safe placeholder config keeps
+    # the project buildable.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Setup Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+      - name: Scan tracked files for secrets
+        run: scripts/check-secrets.sh
+      - name: Run tests without production credentials
+        run: ./gradlew test

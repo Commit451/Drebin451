@@ -1,0 +1,305 @@
+name: 🚀 Deploy
+on:
+  push:
+    branches:
+      - 'main'
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+env:
+  PROJECT_ID: drebin451
+  REGION: us-central1
+  SERVICE: drebin451
+  GAR_LOCATION: us-central1-docker.pkg.dev
+  B2_BUCKET: drebin451
+  B2_ENDPOINT: https://s3.us-east-005.backblazeb2.com
+  B2_REGION: us-east-005
+  FIREBASE_STORAGE_BUCKET: drebin451.firebasestorage.app
+  PUBLIC_BASE_URL: https://api.drebin451.com
+  STRIPE_RETURN_URL: https://drebin451.com
+  STRIPE_CHECKOUT_SUCCESS_URL: https://drebin451.com?billing=success
+  STRIPE_CHECKOUT_CANCEL_URL: https://drebin451.com?billing=cancelled
+  STRIPE_PORTAL_RETURN_URL: https://drebin451.com
+
+jobs:
+  test:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Setup Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+      - name: Scan tracked files for secrets
+        run: scripts/check-secrets.sh
+      - name: Run tests without production credentials
+        run: ./gradlew test
+
+  changes:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+      android: ${{ steps.filter.outputs.android }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Detect changed paths
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
+        id: filter
+        with:
+          filters: |
+            server:
+              - 'server/**'
+              - 'core/**'
+              - 'gradle/**'
+              - 'scripts/prepare-build-secrets.sh'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - '.github/workflows/deploy.yml'
+            android:
+              - 'app/**'
+              - 'core/**'
+              - 'gradle/**'
+              - 'scripts/prepare-build-secrets.sh'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - '.github/workflows/deploy.yml'
+            web:
+              - 'app/shared/**'
+              - 'app/webApp/**'
+              - 'core/**'
+              - 'gradle/**'
+              - 'scripts/prepare-build-secrets.sh'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - 'firebase.json'
+              - '.firebaserc'
+              - '.github/workflows/deploy.yml'
+
+  deploy-server:
+    needs: [test, changes]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Setup Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Prepare GCP deploy and Firebase Admin credentials
+        env:
+          GCP_DEPLOY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT_JSON_BASE64 }}
+          FIREBASE_ADMIN_JSON_BASE64: ${{ secrets.FIREBASE_ADMIN_JSON_BASE64 }}
+        run: scripts/prepare-build-secrets.sh server
+
+      - name: Build fat jar
+        run: ./gradlew :server:shadowJar
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      - name: Activate service account
+        run: |
+          gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
+          gcloud config set project "${{ env.PROJECT_ID }}"
+
+      - name: Sync runtime secrets to Secret Manager
+        env:
+          FIREBASE_ADMIN_JSON_BASE64: ${{ secrets.FIREBASE_ADMIN_JSON_BASE64 }}
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          DREBIN451_CRON_SECRET: ${{ secrets.DREBIN451_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          sync_secret() {
+            secret_name="$1"
+            variable_name="$2"
+            value="${!variable_name:-}"
+            if [ -z "$value" ]; then
+              echo "Required GitHub Actions secret $variable_name is missing." >&2
+              exit 1
+            fi
+            if ! gcloud secrets describe "$secret_name" \
+              --project "${{ env.PROJECT_ID }}" >/dev/null 2>&1
+            then
+              echo "Required pre-provisioned Secret Manager secret $secret_name is missing." >&2
+              exit 1
+            fi
+            current_value="$(
+              gcloud secrets versions access latest \
+                --secret "$secret_name" \
+                --project "${{ env.PROJECT_ID }}" 2>/dev/null || true
+            )"
+            if [ "$current_value" = "$value" ]; then
+              echo "$secret_name is already current."
+              return
+            fi
+            printf '%s' "$value" | gcloud secrets versions add "$secret_name" \
+              --project "${{ env.PROJECT_ID }}" \
+              --data-file=- >/dev/null
+          }
+
+          sync_secret drebin451-firebase-admin-json-base64 FIREBASE_ADMIN_JSON_BASE64
+          sync_secret drebin451-b2-key-id B2_KEY_ID
+          sync_secret drebin451-b2-application-key B2_APPLICATION_KEY
+          sync_secret drebin451-stripe-secret-key STRIPE_SECRET_KEY
+          sync_secret drebin451-stripe-webhook-secret STRIPE_WEBHOOK_SECRET
+          sync_secret drebin451-cron-secret DREBIN451_CRON_SECRET
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" --quiet
+
+      - name: Verify Artifact Registry repo
+        run: |
+          gcloud artifacts repositories describe "${{ env.SERVICE }}" \
+            --location="${{ env.REGION }}" \
+            --project="${{ env.PROJECT_ID }}" >/dev/null
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE="${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}"
+          docker buildx build --platform linux/amd64 --push -t "$IMAGE" -f server/Dockerfile server
+
+      - name: Deploy to Cloud Run
+        env:
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+          DREBIN451_FIREBASE_WEB_API_KEY: ${{ secrets.DREBIN451_FIREBASE_WEB_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$STRIPE_PRO_PRICE_ID" ]; then
+            echo "Required GitHub Actions secret STRIPE_PRO_PRICE_ID is missing." >&2
+            exit 1
+          fi
+          if [ -z "$DREBIN451_FIREBASE_WEB_API_KEY" ]; then
+            echo "Required GitHub Actions secret DREBIN451_FIREBASE_WEB_API_KEY is missing." >&2
+            exit 1
+          fi
+          IMAGE="${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}"
+          gcloud run deploy "${{ env.SERVICE }}" \
+            --image "$IMAGE" \
+            --region "${{ env.REGION }}" \
+            --project "${{ env.PROJECT_ID }}" \
+            --allow-unauthenticated \
+            --remove-env-vars "B2_KEY_ID,B2_APPLICATION_KEY" \
+            --update-env-vars "PUBLIC_BASE_URL=${{ env.PUBLIC_BASE_URL }},STRIPE_RETURN_URL=${{ env.STRIPE_RETURN_URL }},STRIPE_CHECKOUT_SUCCESS_URL=${{ env.STRIPE_CHECKOUT_SUCCESS_URL }},STRIPE_CHECKOUT_CANCEL_URL=${{ env.STRIPE_CHECKOUT_CANCEL_URL }},STRIPE_PORTAL_RETURN_URL=${{ env.STRIPE_PORTAL_RETURN_URL }},STRIPE_PRO_PRICE_ID=$STRIPE_PRO_PRICE_ID,B2_BUCKET=${{ env.B2_BUCKET }},B2_ENDPOINT=${{ env.B2_ENDPOINT }},B2_REGION=${{ env.B2_REGION }},FIREBASE_STORAGE_BUCKET=${{ env.FIREBASE_STORAGE_BUCKET }},DREBIN451_FIREBASE_WEB_API_KEY=$DREBIN451_FIREBASE_WEB_API_KEY" \
+            --update-secrets "FIREBASE_SERVICE_ACCOUNT_BASE64=drebin451-firebase-admin-json-base64:latest,B2_KEY_ID=drebin451-b2-key-id:latest,B2_APPLICATION_KEY=drebin451-b2-application-key:latest,STRIPE_SECRET_KEY=drebin451-stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=drebin451-stripe-webhook-secret:latest,DREBIN451_CRON_SECRET=drebin451-cron-secret:latest"
+
+  build-android:
+    needs: [test, changes]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Setup Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+      - name: Prepare Android release credentials
+        env:
+          FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets.FIREBASE_ANDROID_CONFIG_BASE64 }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: scripts/prepare-build-secrets.sh android-release
+      - name: Build the app
+        env:
+          ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew :app:androidApp:assembleRelease
+
+      - name: Publish APK to Drebin451
+        uses: Commit451/drebin451-release@6bf98ca1786d7ed4d8ba123f6f89a297b1f86c4b # v1
+        with:
+          api-key: ${{ secrets.DREBIN_API_KEY }}
+          apk-path: app/androidApp/build/outputs/apk/release/androidApp-release.apk
+          note: ${{ github.event.head_commit.message }}
+
+  deploy-web:
+    needs: [test, changes]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Setup Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Prepare GCP deploy and web Firebase configuration
+        env:
+          GCP_DEPLOY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT_JSON_BASE64 }}
+          FIREBASE_WEB_CONFIG_BASE64: ${{ secrets.FIREBASE_WEB_CONFIG_BASE64 }}
+        run: scripts/prepare-build-secrets.sh web
+
+      - name: Build the web app (wasm + js fallback)
+        run: ./gradlew :app:webApp:composeCompatibilityBrowserDistribution
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '20'
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy to Firebase Hosting
+        run: firebase deploy --only hosting --project "${{ env.PROJECT_ID }}" --non-interactive
+
+  release-apk:
+    needs: test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Setup Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+      - name: Prepare Android release credentials
+        env:
+          FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets.FIREBASE_ANDROID_CONFIG_BASE64 }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: scripts/prepare-build-secrets.sh android-release
+      - name: Build the release APK
+        env:
+          ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew :app:androidApp:assembleRelease
+      - name: Prepare GitHub release asset
+        run: cp app/androidApp/build/outputs/apk/release/androidApp-release.apk Drebin451.apk
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: Drebin451.apk
+          fail_on_unmatched_files: true
+          generate_release_notes: true
