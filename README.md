@@ -1,5 +1,7 @@
 # Drebin451
 
+[![Download latest Drebin451 APK](https://img.shields.io/badge/Download-latest%20Drebin451%20APK-2ea44f?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Commit451/Drebin451/releases/latest/download/Drebin451.apk)
+
 Ship Android apps privately. Uploading apps to the Play Store for testing purposes is possible, 
 but there are lots of steps and hurdles to do so. Drebin451 fills the gap and lets you easily share
 and distribute your apps while getting them ready for prime time.
