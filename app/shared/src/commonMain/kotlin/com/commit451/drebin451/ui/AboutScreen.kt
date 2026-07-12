@@ -36,10 +36,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -189,22 +195,41 @@ private fun LandingPageChrome(
                     onLogIn = onLogIn,
                     onSignUp = onSignUp,
                 )
-                Column(
+                BoxWithConstraints(
                     modifier = Modifier
                         .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .safeContentPadding(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                        .fillMaxWidth(),
                 ) {
+                    val density = LocalDensity.current
+                    val viewportHeightPx = with(density) { maxHeight.roundToPx() }
+                    var contentHeightPx by remember { mutableStateOf(0) }
+                    var footerHeightPx by remember { mutableStateOf(0) }
+                    val footerSpacerHeight = with(density) {
+                        maxOf(0, viewportHeightPx - contentHeightPx - footerHeightPx).toDp()
+                    }
+
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = horizontalMargin, vertical = 48.dp)
-                            .widthIn(max = 1120.dp),
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .safeContentPadding(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        content(compact)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = horizontalMargin, vertical = 48.dp)
+                                .widthIn(max = 1120.dp)
+                                .onSizeChanged { contentHeightPx = it.height },
+                        ) {
+                            content(compact)
+                        }
+                        Spacer(Modifier.height(footerSpacerHeight))
+                        LandingFooter(
+                            horizontalMargin = horizontalMargin,
+                            modifier = Modifier.onSizeChanged { footerHeightPx = it.height },
+                        )
                     }
-                    LandingFooter(horizontalMargin = horizontalMargin)
                 }
             }
         }
@@ -866,9 +891,12 @@ private fun StatusDot(color: Color) {
 
 
 @Composable
-private fun LandingFooter(horizontalMargin: Dp) {
+private fun LandingFooter(
+    horizontalMargin: Dp,
+    modifier: Modifier = Modifier,
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         color = LandingSurface.copy(alpha = 0.72f),
         border = BorderStroke(1.dp, LandingStroke),
     ) {
