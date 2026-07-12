@@ -1,69 +1,32 @@
 # Drebin451
 
-Ship Android apps privately. Drebin451 includes a Compose Multiplatform Android/web client and a
-Ktor backend deployed to Cloud Run.
+Ship Android apps privately. Uploading apps to the Play Store for testing purposes is possible, 
+but there are lots of steps and hurdles to do so. Drebin451 fills the gap and lets you easily share
+and distribute your apps while getting them ready for prime time.
 
-## Build
+## Uploading
 
-A clean public checkout builds and tests without production credentials:
+There are a few ways you can upload your app to Drebin451:
 
-```shell
-./gradlew test
+### Manual upload
+
+Go to [Drebin451.com](https://drebin451.com) to create an account and upload an APK to install or
+share.
+
+### API upload
+
+After creating an account, you can create an API key in the Settings and use that to deploy your APK
+in any workflow you'd like. One such way is via GitHub Actions:
+https://github.com/Commit451/drebin451-release
+
 ```
-
-Firebase-backed sign-in, production Android signing, deployment, and release publishing require
-local credentials. See [docs/secrets.md](docs/secrets.md) for the complete GitHub Actions and local
-fallback setup.
-
-### Local Android release
-
-1. Download your Firebase Android `google-services.json` to
-   `app/androidApp/google-services.json`.
-2. Put the signing keystore at `app/androidApp/keystore.jks` or set
-   `ANDROID_KEYSTORE_PATH`.
-3. Add the following to ignored `local.properties`, `~/.gradle/gradle.properties`, or your shell
-   environment:
-
-```properties
-ANDROID_KEYSTORE_ALIAS=your-key-alias
-ANDROID_KEYSTORE_PASSWORD=your-store-password
-ANDROID_KEY_PASSWORD=your-key-password
+- name: Publish APK to Drebin451
+  uses: Commit451/drebin451-release@v1
+  with:
+    api-key: ${{ secrets.DREBIN_API_KEY }}
+    apk-path: app/androidApp/build/outputs/apk/release/androidApp-release.apk
+    note: ${{ github.event.head_commit.message }}
 ```
-
-Then build:
-
-```shell
-./gradlew :app:androidApp:assembleRelease
-./gradlew :app:androidApp:bundleRelease
-```
-
-Without signing credentials, release compilation remains available but the release artifact is not
-production-signed.
-
-### Local web configuration
-
-Copy the safe template and replace its placeholders with your Firebase web app settings:
-
-```shell
-cp app/shared/firebase-web-config.example.properties \
-  app/shared/firebase-web-config.properties
-./gradlew :app:webApp:composeCompatibilityBrowserDistribution
-```
-
-Firebase web identifiers are public in the deployed browser bundle, but production values are kept
-out of the source repository so forks can use their own Firebase project.
-
-### Local server
-
-Set Firebase Admin credentials using one of these fallbacks, in precedence order:
-
-- `FIREBASE_SERVICE_ACCOUNT_BASE64` — base64-encoded service-account JSON (production contract)
-- `FIREBASE_SERVICE_ACCOUNT` — raw JSON
-- `FIREBASE_SERVICE_ACCOUNT_PATH` — path to a local JSON file
-- ignored `server/src/main/resources/drebin451-firebase-adminsdk.json`
-
-The local JSON file is explicitly excluded from server resources and Docker build context, so it is
-never packaged into the fat jar or container image.
 
 ## License
 
