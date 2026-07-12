@@ -103,14 +103,7 @@ internal fun SettingsScreen() {
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val horizontalMargin = ContentLayout.horizontalMargin(maxWidth)
             Column(Modifier.fillMaxSize().padding(horizontal = horizontalMargin)) {
-                user?.let { signedInUser ->
-                    ListItem(
-                        headlineContent = { Text("Signed in as") },
-                        supportingContent = { Text(signedInUser.accountSummary()) },
-                    )
-                }
                 if (shouldShowDrebin451ApkDownload()) {
-                    Spacer(Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = { uriHandler.openUri(DREBIN451_LATEST_APK_DOWNLOAD_URL) },
                         modifier = Modifier.fillMaxWidth(),
@@ -124,6 +117,12 @@ internal fun SettingsScreen() {
                         Text("Download latest Drebin451 APK")
                     }
                     Spacer(Modifier.height(8.dp))
+                }
+                user?.let { signedInUser ->
+                    ListItem(
+                        headlineContent = { Text("Signed in as") },
+                        supportingContent = { Text(signedInUser.accountSummary()) },
+                    )
                 }
                 ListItem(
                     headlineContent = { Text("Plan") },
