@@ -8,9 +8,11 @@ import aws.sdk.kotlin.services.s3.model.ListObjectsV2Request
 import aws.sdk.kotlin.services.s3.model.NoSuchKey
 import aws.sdk.kotlin.services.s3.model.PutObjectRequest
 import aws.smithy.kotlin.runtime.content.ByteStream
+import aws.smithy.kotlin.runtime.content.fromFile
 import aws.smithy.kotlin.runtime.content.toByteArray
 import aws.smithy.kotlin.runtime.net.url.Url
 import org.slf4j.LoggerFactory
+import java.io.File
 
 /** Thin wrapper around the AWS S3 Kotlin SDK for Backblaze B2 object storage. */
 class B2ObjectStorage(
@@ -35,6 +37,19 @@ class B2ObjectStorage(
                 this.contentType = contentType
                 contentLength = bytes.size.toLong()
                 body = ByteStream.fromBytes(bytes)
+            },
+        )
+    }
+
+    /** Uploads from disk without materializing the complete object in the JVM heap. */
+    suspend fun put(path: String, file: File, contentType: String) {
+        client.putObject(
+            PutObjectRequest {
+                bucket = config.bucket
+                key = path
+                this.contentType = contentType
+                contentLength = file.length()
+                body = ByteStream.fromFile(file)
             },
         )
     }

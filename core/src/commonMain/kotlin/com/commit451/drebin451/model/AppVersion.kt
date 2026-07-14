@@ -34,5 +34,7 @@ data class AppVersion(
 ) {
     companion object {
         const val CONTENT_TYPE_APK = "application/vnd.android.package-archive"
+        /** Largest APK accepted by every Drebin451 upload client and the backend: exactly 1 GiB. */
+        const val MAX_FILE_SIZE_BYTES: Long = 1L shl 30
     }
 }

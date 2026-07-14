@@ -1,5 +1,10 @@
 package com.commit451.drebin451.api
 
+import com.commit451.drebin451.auth.firebaseIdToken
+import com.commit451.drebin451.file.PickedApk
+import com.commit451.drebin451.file.PlatformUploadResponse
+import com.commit451.drebin451.file.discardPickedApk
+import com.commit451.drebin451.file.uploadPickedApk
 import com.commit451.drebin451.model.ApiKey
 import com.commit451.drebin451.model.ApiKeyCreated
 import com.commit451.drebin451.model.App
@@ -14,8 +19,6 @@ import com.commit451.drebin451.model.User
 import com.commit451.drebin451.model.VersionNote
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
-import io.ktor.client.request.forms.MultiPartFormDataContent
-import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
@@ -24,8 +27,6 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.Headers
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
@@ -39,6 +40,14 @@ internal fun httpErrorMessage(status: HttpStatusCode, body: String): String {
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
         ?: fallback
+}
+
+internal fun appVersionFromUploadResponse(response: PlatformUploadResponse): AppVersion {
+    val status = HttpStatusCode.fromValue(response.statusCode)
+    if (!status.isSuccess()) {
+        throw HttpException(status, httpErrorMessage(status, response.body))
+    }
+    return errorJson.decodeFromString<AppVersion>(response.body)
 }
 
 /**
@@ -129,28 +138,39 @@ object Api {
         client.get("$baseUrl/apps/$appId/versions/$versionId").bodyOrThrow()
 
     /**
-     * Uploads an APK. The server reads its applicationId/version/label from the bytes and
-     * either creates a new app or appends a version to the existing one, returning the
-     * created [AppVersion].
+     * Streams an APK from its platform file handle. The server reads its applicationId/version/label
+     * and either creates a new app or appends a version to the existing one.
      */
-    suspend fun uploadApp(fileName: String, bytes: ByteArray): AppVersion {
-        val response = client.post("$baseUrl/apps") {
-            setBody(
-                MultiPartFormDataContent(
-                    formData {
-                        append(
-                            key = "apk",
-                            value = bytes,
-                            headers = Headers.build {
-                                append(HttpHeaders.ContentType, AppVersion.CONTENT_TYPE_APK)
-                                append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
-                            },
-                        )
-                    },
-                ),
+    suspend fun uploadApp(picked: PickedApk): AppVersion {
+        if (picked.sizeBytes == 0L || picked.sizeBytes > AppVersion.MAX_FILE_SIZE_BYTES) {
+            discardPickedApk(picked)
+            require(picked.sizeBytes != 0L) { "The APK file is empty." }
+            throw IllegalArgumentException("APK files may not exceed 1 GiB.")
+        }
+
+        suspend fun upload(forceRefresh: Boolean): PlatformUploadResponse {
+            val token = try {
+                firebaseIdToken(forceRefresh)
+            } catch (t: Throwable) {
+                discardPickedApk(picked)
+                throw t
+            } ?: run {
+                discardPickedApk(picked)
+                throw HttpException(HttpStatusCode.Unauthorized, "Sign in before uploading an APK.")
+            }
+            return uploadPickedApk(
+                picked = picked,
+                uploadUrl = "$baseUrl/apps",
+                bearerToken = token,
+                retainOnUnauthorized = !forceRefresh,
             )
         }
-        return response.bodyOrThrow()
+
+        var response = upload(forceRefresh = false)
+        if (response.statusCode == HttpStatusCode.Unauthorized.value) {
+            response = upload(forceRefresh = true)
+        }
+        return appVersionFromUploadResponse(response)
     }
 
     /** Deletes an app and every version under it. */

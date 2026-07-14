@@ -187,50 +187,85 @@
             };
         })();
 
-        // Opens the browser file dialog (filtered to .apk), reads the chosen file, and hands it back
-        // to the Kotlin web app (js + wasmJs) as the filename, a newline, then the base64 bytes — or
-        // an empty string if the dialog was dismissed. FileReader.readAsDataURL lets the browser do
-        // the base64 natively (fast for large APKs); the Kotlin side splits on the first newline
-        // (never present in a filename) and decodes. Kept in plain JS so the FileReader bits live in
-        // one readable place for both targets.
+        // Keeps the browser File object behind a short-lived token. Kotlin receives only metadata;
+        // the upload bridge below gives the original File directly to fetch/FormData, so even a 1 GiB
+        // APK is never converted to base64 or copied into the Wasm/JS heap.
+        window.drebinPickedApks = window.drebinPickedApks || Object.create(null);
+        window.drebinApkUploadControllers = window.drebinApkUploadControllers || Object.create(null);
         window.drebinPickApk = function () {
-            return new Promise(function (resolve, reject) {
+            return new Promise(function (resolve) {
                 var input = document.createElement('input');
                 input.type = 'file';
                 input.accept = '.apk,application/vnd.android.package-archive';
                 input.style.display = 'none';
 
                 var settled = false;
-                function finish(fn, value) {
+                function finish(value) {
                     if (settled) return;
                     settled = true;
                     if (input.parentNode) input.parentNode.removeChild(input);
-                    fn(value);
+                    resolve(value);
                 }
 
-                // 'cancel' fires (modern browsers) when the dialog is closed with nothing chosen.
-                input.addEventListener('cancel', function () { finish(resolve, ''); });
+                input.addEventListener('cancel', function () { finish(''); });
                 input.addEventListener('change', function () {
                     var file = input.files && input.files[0];
-                    if (!file) { finish(resolve, ''); return; }
-                    var reader = new FileReader();
-                    reader.onload = function () {
-                        // result is a data: URL — strip the "data:<type>;base64," prefix.
-                        var result = String(reader.result);
-                        var comma = result.indexOf(',');
-                        var base64 = comma >= 0 ? result.substring(comma + 1) : '';
-                        finish(resolve, file.name + '\n' + base64);
-                    };
-                    reader.onerror = function () {
-                        finish(reject, reader.error || new Error("Could not read the selected file."));
-                    };
-                    reader.readAsDataURL(file);
+                    if (!file) { finish(''); return; }
+                    var token = window.crypto && typeof window.crypto.randomUUID === 'function'
+                        ? window.crypto.randomUUID()
+                        : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+                    window.drebinPickedApks[token] = file;
+                    finish(JSON.stringify({ token: token, name: file.name, size: file.size }));
                 });
 
                 // Some browsers only fire 'click' reliably when the input is in the DOM.
                 document.body.appendChild(input);
                 input.click();
             });
+        };
+
+        window.drebinDiscardPickedApk = function (sourceId) {
+            var key = String(sourceId);
+            var controller = window.drebinApkUploadControllers[key];
+            if (controller) controller.abort();
+            delete window.drebinApkUploadControllers[key];
+            delete window.drebinPickedApks[key];
+        };
+
+        window.drebinUploadPickedApk = async function (sourceId, uploadUrl, bearerToken, retainOnUnauthorized) {
+            var key = String(sourceId);
+            var file = window.drebinPickedApks[key];
+            if (!file) throw new Error('The selected APK is no longer available. Please select it again.');
+
+            var controller = new AbortController();
+            window.drebinApkUploadControllers[key] = controller;
+            try {
+                var fileNameBytes = new TextEncoder().encode(file.name || 'app.apk');
+                var fileNameBinary = '';
+                for (var i = 0; i < fileNameBytes.length; i += 1) {
+                    fileNameBinary += String.fromCharCode(fileNameBytes[i]);
+                }
+                var response = await fetch(String(uploadUrl), {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + String(bearerToken),
+                        'Content-Type': 'application/vnd.android.package-archive',
+                        'X-Apk-File-Name-Base64': btoa(fileNameBinary)
+                    },
+                    body: file,
+                    signal: controller.signal
+                });
+                var body = await response.text();
+                // Preserve the File only for the first 401 so Firebase can refresh and retry once.
+                if (response.status !== 401 || !retainOnUnauthorized) {
+                    delete window.drebinPickedApks[key];
+                }
+                return JSON.stringify({ statusCode: response.status, body: body });
+            } finally {
+                if (window.drebinApkUploadControllers[key] === controller) {
+                    delete window.drebinApkUploadControllers[key];
+                }
+            }
         };
 
         // Starts a browser download for APK bytes that the Kotlin app already fetched through the

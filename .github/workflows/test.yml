@@ -23,4 +23,6 @@ jobs:
       - name: Scan tracked files for secrets
         run: scripts/check-secrets.sh
       - name: Run tests without production credentials
-        run: ./gradlew test
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: ./gradlew test :app:shared:jsBrowserTest :app:shared:wasmJsBrowserTest

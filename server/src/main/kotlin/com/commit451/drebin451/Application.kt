@@ -31,12 +31,15 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.application.log
+import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.netty.NettyApplicationEngine
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.contentType
 import io.ktor.server.request.receive
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.request.receiveMultipart
@@ -51,13 +54,22 @@ import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
+import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.Base64
 import java.util.UUID
 
 /** Upper bound on the free-text note stored per upload, to keep version rows small. */
 internal const val MAX_NOTE_LENGTH = 2000
+internal const val MAX_MULTIPART_PARTS = 2
+internal const val LEGACY_MULTIPART_MAX_REQUEST_BYTES = 40L * 1024 * 1024
+internal const val ApkFileNameBase64Header = "X-Apk-File-Name-Base64"
+internal const val UploadNoteBase64Header = "X-Upload-Note-Base64"
 
 internal const val STORAGE_QUOTA_EXCEEDED_ERROR_MESSAGE =
     "Storage limit exceeded, please update your plan to continue uploading"
@@ -90,6 +102,25 @@ internal fun isAuthorizedCronSecret(presented: String?, configured: String?): Bo
 
 internal fun normalizeVersionNote(note: String): String = note.trim().take(MAX_NOTE_LENGTH)
 
+internal fun decodeUploadHeader(value: String?, maxBytes: Int): String {
+    if (value.isNullOrBlank()) return ""
+    val bytes = try {
+        Base64.getDecoder().decode(value)
+    } catch (t: IllegalArgumentException) {
+        throw IllegalArgumentException("Invalid base64 upload header", t)
+    }
+    require(bytes.size <= maxBytes) { "Upload header is too large" }
+    return bytes.toString(Charsets.UTF_8)
+}
+
+internal fun safeUploadFileName(value: String): String = value
+    .substringAfterLast('/')
+    .substringAfterLast('\\')
+    .map { if (it.isISOControl()) '_' else it }
+    .joinToString("")
+    .trim()
+    .ifBlank { "app.apk" }
+
 internal fun newVersionPushBody(versionName: String, versionCode: Long, note: String): String {
     val versionLabel = if (versionName.isNotBlank()) {
         "Version $versionName ($versionCode)"
@@ -110,8 +141,21 @@ internal fun newVersionPushDeepLink(shareId: String, versionId: String): String 
 fun main() {
     Firebasis.initialize()
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
-    embeddedServer(Netty, port = port, host = "0.0.0.0", module = Application::module)
-        .start(wait = true)
+    embeddedServer(
+        Netty,
+        configure = { configureCloudRunEngine(port) },
+        module = Application::module,
+    ).start(wait = true)
+}
+
+/** Cloud Run forwards end-to-end HTTP/2 as cleartext h2c after terminating public TLS. */
+internal fun NettyApplicationEngine.Configuration.configureCloudRunEngine(port: Int) {
+    connector {
+        host = "0.0.0.0"
+        this.port = port
+    }
+    enableHttp2 = true
+    enableH2c = true
 }
 
 fun Application.module() {
@@ -123,6 +167,8 @@ fun Application.module() {
         allowHeader(HttpHeaders.Authorization)
         allowHeader(HttpHeaders.ContentType)
         allowHeader(ApiKeyHeader)
+        allowHeader(ApkFileNameBase64Header)
+        allowHeader(UploadNoteBase64Header)
         allowNonSimpleContentTypes = true
         allowMethod(HttpMethod.Options)
         allowMethod(HttpMethod.Get)
@@ -341,113 +387,197 @@ fun Application.module() {
             call.respond(HttpStatusCode.NoContent)
         }
 
-        // Upload an APK (multipart): part "apk" = file. The applicationId, version and label
-        // are read from the APK itself — this creates the app on the first upload of an
-        // applicationId, or adds another version to the existing app otherwise.
+        // Upload an APK. Current clients stream a raw APK body; bounded multipart remains supported
+        // for older action/app versions. Metadata is read from the APK itself.
         post("/$prefix/apps") {
             // Accepts a full-access API key (CI/scripts) via X-API-Key, or a Firebase session;
             // either resolves to the owning user.
             val user = Firebasis.refreshPlanIfStale(requireUploader() ?: return@post)
-
-            var fileName: String? = null
-            var bytes: ByteArray? = null
-            var note = ""
-
-            call.receiveMultipart().forEachPart { part ->
-                when (part) {
-                    is PartData.FileItem -> {
-                        fileName = part.originalFileName?.takeIf { it.isNotBlank() } ?: "app.apk"
-                        bytes = part.provider().readRemaining().readByteArray()
-                    }
-                    // Optional free-text annotation (CI sends the commit message); trimmed and
-                    // capped. Any other form field is ignored.
-                    is PartData.FormItem -> {
-                        if (part.name == "note") note = normalizeVersionNote(part.value)
-                    }
-
-                    else -> {}
+            val storageStatus = user.storageStatus()
+            val requestContentType = call.request.contentType()
+            val legacyMultipart = requestContentType.match(ContentType.MultiPart.FormData)
+            val declaredBytes = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+            val estimatedApkBytes = if (legacyMultipart) {
+                val legacyRequestBytes = requireNotNull(declaredBytes) {
+                    "Legacy multipart uploads require Content-Length."
                 }
-                part.release()
+                require(legacyRequestBytes <= LEGACY_MULTIPART_MAX_REQUEST_BYTES) {
+                    "Legacy multipart uploads may not exceed 40 MiB; use the raw HTTP/2 upload protocol."
+                }
+                (legacyRequestBytes - 64L * 1024).coerceAtLeast(1)
+            } else {
+                require(
+                    requestContentType.match(ContentType.parse(AppVersion.CONTENT_TYPE_APK)) ||
+                        requestContentType.match(ContentType.Application.OctetStream),
+                ) { "APK uploads require content type ${AppVersion.CONTENT_TYPE_APK}." }
+                declaredBytes?.also {
+                    require(it in 1..AppVersion.MAX_FILE_SIZE_BYTES) { "APK files may not exceed 1 GiB." }
+                }
+            }
+            if (estimatedApkBytes != null && estimatedApkBytes > storageStatus.remainingBytes) {
+                throw StorageQuotaExceededException(
+                    plan = storageStatus.plan,
+                    usedBytes = storageStatus.usedBytes,
+                    attemptedBytes = estimatedApkBytes,
+                    limitBytes = storageStatus.limitBytes,
+                )
             }
 
-            val data = bytes ?: throw IllegalArgumentException("Missing 'apk' file part")
-            val name = fileName ?: "app.apk"
-            val info = parseApk(data)
+            val uploadFile = Files.createTempFile("drebin451-upload-", ".apk").toFile()
+            try {
+                val (name, uploadSize, note) = if (legacyMultipart) {
+                    var fileName: String? = null
+                    var uploadSizeBytes: Long? = null
+                    var legacyNote = ""
+                    var noteSeen = false
+                    var partCount = 0
 
-            val appId = Firebasis.appDocId(user.uid, info.applicationId)
-            val versionId = UUID.randomUUID().toString()
-            val storagePath = apkStoragePath(user.uid, info.applicationId, versionId, name)
-            val uploadSizeBytes = data.size.toLong()
+                    call.receiveMultipart().forEachPart { part ->
+                        try {
+                            when (part) {
+                                is PartData.FileItem -> {
+                                    val source = part.provider()
+                                    try {
+                                        partCount++
+                                        require(partCount <= MAX_MULTIPART_PARTS) { "Too many multipart parts." }
+                                        require(part.name == "apk") { "Unexpected file part '${part.name}'." }
+                                        require(uploadSizeBytes == null) { "Only one 'apk' file part is allowed." }
+                                        fileName = part.originalFileName?.takeIf { it.isNotBlank() } ?: "app.apk"
+                                        uploadSizeBytes = copyUploadToFile(source, uploadFile)
+                                    } catch (t: Throwable) {
+                                        source.cancel(t)
+                                        throw t
+                                    }
+                                }
+                                is PartData.FormItem -> {
+                                    partCount++
+                                    require(partCount <= MAX_MULTIPART_PARTS) { "Too many multipart parts." }
+                                    require(part.name == "note") { "Unexpected form part '${part.name}'." }
+                                    require(!noteSeen) { "Only one 'note' form part is allowed." }
+                                    require(part.value.length <= MAX_NOTE_LENGTH) { "Upload note is too long." }
+                                    noteSeen = true
+                                    legacyNote = normalizeVersionNote(part.value)
+                                }
 
-            var storageReserved = false
-            var iconUploaded = false
-            val iconStoragePath = Firebasis.iconStoragePath(user.uid, info.applicationId)
+                                else -> throw IllegalArgumentException("Unsupported multipart part.")
+                            }
+                        } finally {
+                            if (part is PartData.FileItem || part is PartData.FormItem) part.release()
+                        }
+                    }
 
-            val (version, app) = try {
-                Firebasis.reserveStorage(user.uid, uploadSizeBytes)
-                storageReserved = true
-
-                Firebasis.uploadBytes(storagePath, data, AppVersion.CONTENT_TYPE_APK)
-
-                // Capture the launcher icon once: store it (and set the app's imageUrl) only while the
-                // app has no icon yet — the first upload that yields a raster one. Served publicly by
-                // GET /apps/{id}/icon.
-                val existingImageUrl = Firebasis.getApp(appId)?.imageUrl ?: ""
-                val imageUrl = if (existingImageUrl.isBlank() && info.icon != null) {
-                    Firebasis.uploadBytes(
-                        iconStoragePath,
-                        info.icon.bytes,
-                        info.icon.contentType,
+                    Triple(
+                        safeUploadFileName(fileName ?: "app.apk"),
+                        uploadSizeBytes ?: throw IllegalArgumentException("Missing 'apk' file part"),
+                        legacyNote,
                     )
-                    iconUploaded = true
-                    "$publicBaseUrl/$prefix/apps/$appId/icon"
                 } else {
-                    existingImageUrl
+                    val rawFileName = safeUploadFileName(
+                        decodeUploadHeader(call.request.headers[ApkFileNameBase64Header], maxBytes = 1024),
+                    )
+                    val rawNote = normalizeVersionNote(
+                        decodeUploadHeader(call.request.headers[UploadNoteBase64Header], maxBytes = 8192),
+                    )
+                    Triple(rawFileName, copyUploadToFile(call.receiveChannel(), uploadFile), rawNote)
+                }
+                val info = withContext(Dispatchers.IO) { parseApk(uploadFile) }
+
+                val appId = Firebasis.appDocId(user.uid, info.applicationId)
+                val versionId = UUID.randomUUID().toString()
+                val storagePath = apkStoragePath(user.uid, info.applicationId, versionId, name)
+
+                var storageReserved = false
+                var iconUploaded = false
+                val iconStoragePath = Firebasis.iconStoragePath(user.uid, info.applicationId)
+
+                val (version, app) = try {
+                    Firebasis.reserveStorage(user.uid, uploadSize)
+                    storageReserved = true
+
+                    Firebasis.uploadFile(storagePath, uploadFile, AppVersion.CONTENT_TYPE_APK)
+
+                    // Capture the launcher icon once: store it (and set the app's imageUrl) only while the
+                    // app has no icon yet — the first upload that yields a raster one. Served publicly by
+                    // GET /apps/{id}/icon.
+                    val existingImageUrl = Firebasis.getApp(appId)?.imageUrl ?: ""
+                    val imageUrl = if (existingImageUrl.isBlank() && info.icon != null) {
+                        Firebasis.uploadBytes(
+                            iconStoragePath,
+                            info.icon.bytes,
+                            info.icon.contentType,
+                        )
+                        iconUploaded = true
+                        "$publicBaseUrl/$prefix/apps/$appId/icon"
+                    } else {
+                        existingImageUrl
+                    }
+
+                    val now = System.currentTimeMillis()
+                    val version = AppVersion(
+                        id = versionId,
+                        appId = appId,
+                        applicationId = info.applicationId,
+                        ownerUserId = user.uid,
+                        versionName = info.versionName,
+                        versionCode = info.versionCode,
+                        fileName = name,
+                        fileSizeBytes = uploadSize,
+                        contentType = AppVersion.CONTENT_TYPE_APK,
+                        createdAt = now,
+                        updatedAt = now,
+                        note = note,
+                        storagePath = storagePath,
+                    )
+                    val app = Firebasis.addVersion(
+                        version,
+                        appLabel = info.label,
+                        ownerName = user.displayName,
+                        imageUrl = imageUrl
+                    )
+                    storageReserved = false
+                    version to app
+                } catch (t: Throwable) {
+                    // A disconnected request cancels the call coroutine. Cleanup must still reconcile quota
+                    // and object storage, and each operation must run even if a previous cleanup fails.
+                    withContext(NonCancellable) {
+                        if (storageReserved) {
+                            try {
+                                Firebasis.releaseStorage(user.uid, uploadSize)
+                            } catch (cleanupFailure: Throwable) {
+                                call.application.log.error("Failed to release reserved upload storage", cleanupFailure)
+                            }
+                        }
+                        try {
+                            Firebasis.deleteBlob(storagePath)
+                        } catch (cleanupFailure: Throwable) {
+                            call.application.log.error("Failed to delete rejected APK object", cleanupFailure)
+                        }
+                        if (iconUploaded) {
+                            try {
+                                Firebasis.deleteBlob(iconStoragePath)
+                            } catch (cleanupFailure: Throwable) {
+                                call.application.log.error("Failed to delete rejected APK icon", cleanupFailure)
+                            }
+                        }
+                    }
+                    throw t
                 }
 
-                val now = System.currentTimeMillis()
-                val version = AppVersion(
-                    id = versionId,
+                // Notify devices that follow this app (subscribed to its update topic). Best-effort —
+                // never fails the upload. The first upload of an app has no subscribers yet, so this is
+                // naturally a no-op then.
+                Messenger.sendNewVersion(
                     appId = appId,
-                    applicationId = info.applicationId,
-                    ownerUserId = user.uid,
-                    versionName = info.versionName,
-                    versionCode = info.versionCode,
-                    fileName = name,
-                    fileSizeBytes = uploadSizeBytes,
-                    contentType = AppVersion.CONTENT_TYPE_APK,
-                    createdAt = now,
-                    updatedAt = now,
-                    note = note,
-                    storagePath = storagePath,
+                    versionId = version.id,
+                    title = info.label.ifBlank { info.applicationId },
+                    body = newVersionPushBody(version.versionName, version.versionCode, version.note),
+                    deepLink = newVersionPushDeepLink(app.shareId, version.id),
                 )
-                val app = Firebasis.addVersion(
-                    version,
-                    appLabel = info.label,
-                    ownerName = user.displayName,
-                    imageUrl = imageUrl
-                )
-                storageReserved = false
-                version to app
-            } catch (t: Throwable) {
-                if (storageReserved) Firebasis.releaseStorage(user.uid, uploadSizeBytes)
-                Firebasis.deleteBlob(storagePath)
-                if (iconUploaded) Firebasis.deleteBlob(iconStoragePath)
-                throw t
+
+                call.respond(version)
+            } finally {
+                if (!uploadFile.delete()) uploadFile.deleteOnExit()
             }
-
-            // Notify devices that follow this app (subscribed to its update topic). Best-effort —
-            // never fails the upload. The first upload of an app has no subscribers yet, so this is
-            // naturally a no-op then.
-            Messenger.sendNewVersion(
-                appId = appId,
-                versionId = version.id,
-                title = info.label.ifBlank { info.applicationId },
-                body = newVersionPushBody(version.versionName, version.versionCode, version.note),
-                deepLink = newVersionPushDeepLink(app.shareId, version.id),
-            )
-
-            call.respond(version)
         }
 
         // Single app listing (auth; owner or added-to-Shared only).

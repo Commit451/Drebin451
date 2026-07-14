@@ -39,7 +39,9 @@ jobs:
       - name: Scan tracked files for secrets
         run: scripts/check-secrets.sh
       - name: Run tests without production credentials
-        run: ./gradlew test
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: ./gradlew test :app:shared:jsBrowserTest :app:shared:wasmJsBrowserTest
 
   changes:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -195,6 +197,12 @@ jobs:
             --region "${{ env.REGION }}" \
             --project "${{ env.PROJECT_ID }}" \
             --allow-unauthenticated \
+            --use-http2 \
+            --memory 4Gi \
+            --cpu 2 \
+            --concurrency 2 \
+            --max-instances 5 \
+            --timeout 3600 \
             --remove-env-vars "B2_KEY_ID,B2_APPLICATION_KEY" \
             --update-env-vars "PUBLIC_BASE_URL=${{ env.PUBLIC_BASE_URL }},STRIPE_RETURN_URL=${{ env.STRIPE_RETURN_URL }},STRIPE_CHECKOUT_SUCCESS_URL=${{ env.STRIPE_CHECKOUT_SUCCESS_URL }},STRIPE_CHECKOUT_CANCEL_URL=${{ env.STRIPE_CHECKOUT_CANCEL_URL }},STRIPE_PORTAL_RETURN_URL=${{ env.STRIPE_PORTAL_RETURN_URL }},STRIPE_PRO_PRICE_ID=$STRIPE_PRO_PRICE_ID,B2_BUCKET=${{ env.B2_BUCKET }},B2_ENDPOINT=${{ env.B2_ENDPOINT }},B2_REGION=${{ env.B2_REGION }},FIREBASE_STORAGE_BUCKET=${{ env.FIREBASE_STORAGE_BUCKET }},DREBIN451_FIREBASE_WEB_API_KEY=$DREBIN451_FIREBASE_WEB_API_KEY" \
             --update-secrets "FIREBASE_SERVICE_ACCOUNT_BASE64=drebin451-firebase-admin-json-base64:latest,B2_KEY_ID=drebin451-b2-key-id:latest,B2_APPLICATION_KEY=drebin451-b2-application-key:latest,STRIPE_SECRET_KEY=drebin451-stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=drebin451-stripe-webhook-secret:latest,DREBIN451_CRON_SECRET=drebin451-cron-secret:latest"
@@ -227,7 +235,7 @@ jobs:
         run: ./gradlew :app:androidApp:assembleRelease
 
       - name: Publish APK to Drebin451
-        uses: Commit451/drebin451-release@6bf98ca1786d7ed4d8ba123f6f89a297b1f86c4b # v1
+        uses: Commit451/drebin451-release@6bd9c5cc88b9f2b00d9bd6e63131fbc75ce5a18f # v1.0.2
         with:
           api-key: ${{ secrets.DREBIN_API_KEY }}
           apk-path: app/androidApp/build/outputs/apk/release/androidApp-release.apk

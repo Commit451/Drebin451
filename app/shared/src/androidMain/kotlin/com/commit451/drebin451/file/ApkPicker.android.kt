@@ -18,9 +18,15 @@ actual fun rememberApkPicker(onResult: (PickedApk?) -> Unit): () -> Unit {
             onResult(null)
             return@rememberLauncherForActivityResult
         }
-        val name = context.displayName(uri) ?: "app.apk"
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        onResult(if (bytes == null) null else PickedApk(name, bytes))
+        val metadata = context.apkMetadata(uri)
+        initializeApkUpload(context.applicationContext.contentResolver)
+        onResult(
+            PickedApk(
+                fileName = metadata.fileName,
+                sizeBytes = metadata.sizeBytes,
+                sourceId = uri.toString(),
+            ),
+        )
     }
     return {
         // Some providers report APKs as octet-stream/zip, so accept those too.
@@ -34,8 +40,27 @@ actual fun rememberApkPicker(onResult: (PickedApk?) -> Unit): () -> Unit {
     }
 }
 
-private fun Context.displayName(uri: Uri): String? =
-    contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+private data class ApkMetadata(val fileName: String, val sizeBytes: Long)
+
+private fun Context.apkMetadata(uri: Uri): ApkMetadata {
+    var fileName = "app.apk"
+    var sizeBytes = -1L
+    contentResolver.query(
+        uri,
+        arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex >= 0) fileName = cursor.getString(nameIndex)?.ifBlank { "app.apk" } ?: "app.apk"
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) sizeBytes = cursor.getLong(sizeIndex)
+        }
     }
+    if (sizeBytes < 0) {
+        sizeBytes = contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+    }
+    return ApkMetadata(fileName, sizeBytes)
+}

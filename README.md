@@ -8,7 +8,10 @@ and distribute your apps while getting them ready for prime time.
 
 ## Uploading
 
-There are a few ways you can upload your app to Drebin451:
+There are a few ways you can upload your app to Drebin451. APKs up to **1 GiB** are supported; the
+browser, Android app, and official release action stream the file instead of loading the entire APK
+into memory. The production API uses end-to-end HTTP/2 so Cloud Run does not apply its 32 MiB
+HTTP/1 request limit.
 
 ### Manual upload
 

@@ -1,6 +1,7 @@
 package com.commit451.drebin451
 
 import com.commit451.drebin451.push.PushData
+import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -21,6 +22,19 @@ class VersionNoteTest {
     @Test
     fun `deleting a version note stores the blank note`() {
         assertEquals("", normalizeVersionNote("   "))
+    }
+
+    @Test
+    fun `raw upload headers preserve utf8 metadata`() {
+        val value = "Unicode 🚀 release"
+        val encoded = Base64.getEncoder().encodeToString(value.encodeToByteArray())
+
+        assertEquals(value, decodeUploadHeader(encoded, maxBytes = 1024))
+    }
+
+    @Test
+    fun `raw upload filenames discard path and control characters`() {
+        assertEquals("release_.apk", safeUploadFileName("../../folder/release\n.apk"))
     }
 
     @Test
