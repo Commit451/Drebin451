@@ -211,7 +211,7 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             _state.update { it.copy(uploading = true, storageLimitUploadDialogMessage = null) }
             try {
-                val version = Api.uploadApp(fileName = picked.fileName, bytes = picked.bytes)
+                val version = Api.uploadApp(picked)
                 val label = version.versionName.ifBlank { picked.fileName }
                 val promptApp = notificationPromptAppFor(version)
                 _state.update {

@@ -1,8 +1,10 @@
 package com.commit451.drebin451.api
 
+import com.commit451.drebin451.file.PlatformUploadResponse
 import io.ktor.http.HttpStatusCode
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class ApiErrorTest {
 
@@ -37,5 +39,34 @@ class ApiErrorTest {
                 body = "",
             ),
         )
+    }
+
+    @Test
+    fun uploadResponse_decodesCreatedVersion() {
+        val version = appVersionFromUploadResponse(
+            PlatformUploadResponse(
+                statusCode = 201,
+                body = "{\"id\":\"version-1\",\"fileName\":\"large.apk\",\"fileSizeBytes\":1073741824}",
+            ),
+        )
+
+        assertEquals("version-1", version.id)
+        assertEquals("large.apk", version.fileName)
+        assertEquals(1L shl 30, version.fileSizeBytes)
+    }
+
+    @Test
+    fun uploadResponse_preservesStructuredApiErrors() {
+        val error = assertFailsWith<HttpException> {
+            appVersionFromUploadResponse(
+                PlatformUploadResponse(
+                    statusCode = 402,
+                    body = "{\"errorMessage\":\"Storage limit exceeded\"}",
+                ),
+            )
+        }
+
+        assertEquals(HttpStatusCode.PaymentRequired, error.statusCode)
+        assertEquals("Storage limit exceeded", error.message)
     }
 }

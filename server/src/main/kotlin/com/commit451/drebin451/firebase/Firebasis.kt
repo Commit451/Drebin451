@@ -28,6 +28,7 @@ import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.cloud.FirestoreClient
 import org.slf4j.LoggerFactory
+import java.io.File
 import java.security.SecureRandom
 import java.util.Base64
 
@@ -929,6 +930,10 @@ object Firebasis {
 
     suspend fun uploadBytes(path: String, bytes: ByteArray, contentType: String) {
         objectStorage.put(path, bytes, contentType)
+    }
+
+    suspend fun uploadFile(path: String, file: File, contentType: String) {
+        objectStorage.put(path, file, contentType)
     }
 
     suspend fun getBlob(path: String): StoredObject? =
