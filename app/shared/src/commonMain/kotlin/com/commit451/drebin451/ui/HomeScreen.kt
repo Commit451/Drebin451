@@ -257,6 +257,9 @@ fun HomeScreen() {
                                     }
                                 }
                             }
+                            item(key = "bottom-spacer") {
+                                Spacer(Modifier.height(64.dp))
+                            }
                         }
                     }
                 }
