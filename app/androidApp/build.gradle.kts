@@ -36,7 +36,8 @@ val releaseSigningAvailable = releaseKeystoreFile.isFile &&
 
 // Fork PRs and first-time local checkouts can compile without production Firebase configuration.
 // CI/local production builds create this ignored file before Gradle starts.
-if (project.file("google-services.json").isFile) {
+val googleServicesConfigured = project.file("google-services.json").isFile
+if (googleServicesConfigured) {
     apply(plugin = "com.google.gms.google-services")
 } else {
     logger.warn(
@@ -71,9 +72,15 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = providers.gradleProperty("drebin451.versionCode").get().toInt()
         versionName = providers.gradleProperty("drebin451.versionName").get()
+        if (!googleServicesConfigured) {
+            // Keep R.string.default_web_client_id available to secret-free fork builds. Configured
+            // builds get the real value from the Google Services Gradle plugin instead.
+            resValue("string", "default_web_client_id", "")
+        }
     }
     buildFeatures {
         buildConfig = true
+        resValues = true
     }
     packaging {
         resources {

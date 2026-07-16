@@ -23,6 +23,17 @@ actual fun LoginButtons(
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
 
+    if (!isGoogleSignInAvailable) {
+        Button(
+            enabled = false,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {},
+        ) {
+            Text("Google sign-in unavailable")
+        }
+        return
+    }
+
     GoogleButtonUiContainer(
         filterByAuthorizedAccounts = false,
         onGoogleSignInResult = { googleUser ->

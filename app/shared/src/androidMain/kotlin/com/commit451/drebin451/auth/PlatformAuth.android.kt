@@ -13,7 +13,13 @@ import dev.gitlive.firebase.auth.FirebaseAuthWeakPasswordException
 import dev.gitlive.firebase.auth.auth
 import dev.gitlive.firebase.auth.GoogleAuthProvider as FirebaseGoogleAuthProvider
 
+internal var isGoogleSignInAvailable = false
+    private set
+
 actual fun initializeAuth(webClientId: String) {
+    isGoogleSignInAvailable = webClientId.isNotBlank()
+    if (!isGoogleSignInAvailable) return
+
     GoogleAuthProvider.create(
         credentials = GoogleAuthCredentials(serverId = webClientId),
     )

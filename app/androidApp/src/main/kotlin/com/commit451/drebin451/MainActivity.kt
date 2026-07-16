@@ -30,16 +30,9 @@ class MainActivity : ComponentActivity() {
         // Production/local builds get this resource from the ignored google-services.json. Public
         // and fork builds can still compile without Firebase configuration; Google sign-in remains
         // unavailable until a real config file is supplied.
-        val webClientIdResource = resources.getIdentifier(
-            "default_web_client_id",
-            "string",
-            packageName,
-        )
-        val webClientId = webClientIdResource
-            .takeIf { it != 0 }
-            ?.let(::getString)
-            .orEmpty()
-        initializeAuth(webClientId)
+        // Keep this as a static R reference: release resource shrinking cannot see resources looked
+        // up through getIdentifier() and previously removed this value from the published APK.
+        initializeAuth(getString(R.string.default_web_client_id))
         if (captureDeepLink(intent)) {
             clearDeepLinkIntent()
         }
