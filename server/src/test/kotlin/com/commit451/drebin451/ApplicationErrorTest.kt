@@ -2,6 +2,7 @@ package com.commit451.drebin451
 
 import com.commit451.drebin451.firebase.StorageQuotaExceededException
 import com.commit451.drebin451.model.PlanIds
+import com.commit451.drebin451.model.PlanLimits
 import io.ktor.http.HttpStatusCode
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -45,6 +46,24 @@ class ApplicationErrorTest {
         assertEquals(
             ErrorResponse("Storage limit exceeded, please update your plan to continue uploading"),
             errorResponseForException(wrapped),
+        )
+    }
+
+    @Test
+    fun `pro storage quota errors direct users to contact support`() {
+        val cause = StorageQuotaExceededException(
+            plan = PlanIds.PRO,
+            usedBytes = PlanLimits.PRO_STORAGE_BYTES,
+            attemptedBytes = 1,
+            limitBytes = PlanLimits.PRO_STORAGE_BYTES,
+        )
+
+        assertEquals(HttpStatusCode.PaymentRequired, statusForException(cause))
+        assertEquals(
+            ErrorResponse(
+                "Storage limit exceeded, please contact us at hello@commit451 for additional options for more storage",
+            ),
+            errorResponseForException(cause),
         )
     }
 

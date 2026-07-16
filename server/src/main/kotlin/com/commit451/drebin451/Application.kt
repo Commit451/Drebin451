@@ -16,6 +16,8 @@ import com.commit451.drebin451.model.ApiKeyCreated
 import com.commit451.drebin451.model.AppVersion
 import com.commit451.drebin451.model.CreateApiKeyRequest
 import com.commit451.drebin451.model.PasswordResetRequest
+import com.commit451.drebin451.model.PlanIds
+import com.commit451.drebin451.model.PlanLimits
 import com.commit451.drebin451.model.VersionNote
 import com.commit451.drebin451.model.storageStatus
 import com.commit451.drebin451.stripe.StripeBilling
@@ -73,6 +75,9 @@ internal const val UploadNoteBase64Header = "X-Upload-Note-Base64"
 
 internal const val STORAGE_QUOTA_EXCEEDED_ERROR_MESSAGE =
     "Storage limit exceeded, please update your plan to continue uploading"
+
+internal const val PRO_STORAGE_QUOTA_EXCEEDED_ERROR_MESSAGE =
+    "Storage limit exceeded, please contact us at hello@commit451 for additional options for more storage"
 
 internal const val CronSecretHeader = "X-Cron-Secret"
 
@@ -848,9 +853,14 @@ internal fun statusForException(cause: Throwable): HttpStatusCode = when {
     else -> HttpStatusCode.InternalServerError
 }
 
-internal fun errorResponseForException(cause: Throwable): ErrorResponse? = when {
-    cause.storageQuotaCause() != null -> ErrorResponse(STORAGE_QUOTA_EXCEEDED_ERROR_MESSAGE)
-    else -> null
+internal fun errorResponseForException(cause: Throwable): ErrorResponse? {
+    val quotaCause = cause.storageQuotaCause() ?: return null
+    val message = if (PlanLimits.normalized(quotaCause.plan) == PlanIds.PRO) {
+        PRO_STORAGE_QUOTA_EXCEEDED_ERROR_MESSAGE
+    } else {
+        STORAGE_QUOTA_EXCEEDED_ERROR_MESSAGE
+    }
+    return ErrorResponse(message)
 }
 
 private tailrec fun Throwable.storageQuotaCause(): StorageQuotaExceededException? = when (this) {
