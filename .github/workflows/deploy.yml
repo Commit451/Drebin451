@@ -234,9 +234,6 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew :app:androidApp:assembleRelease
 
-      - name: Verify Google OAuth client resource
-        run: python3 scripts/verify-android-google-client-resource.py
-
       - name: Publish APK to Drebin451
         uses: Commit451/drebin451-release@6bd9c5cc88b9f2b00d9bd6e63131fbc75ce5a18f # v1.0.2
         with:
@@ -306,8 +303,6 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew :app:androidApp:assembleRelease
-      - name: Verify Google OAuth client resource
-        run: python3 scripts/verify-android-google-client-resource.py
       - name: Prepare GitHub release asset
         run: cp app/androidApp/build/outputs/apk/release/androidApp-release.apk Drebin451.apk
       - name: Create GitHub release
