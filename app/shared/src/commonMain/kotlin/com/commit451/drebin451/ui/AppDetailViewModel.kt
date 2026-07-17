@@ -9,20 +9,78 @@ import com.commit451.drebin451.follow.isFollowing
 import com.commit451.drebin451.follow.unfollowApp
 import com.commit451.drebin451.model.App
 import com.commit451.drebin451.model.AppVersion
+import com.commit451.drebin451.model.BatchDeleteVersionsRequest
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+// A confirmed multi-build delete must finish even if the user leaves the detail route. Keeping this
+// bounded destructive operation outside viewModelScope prevents Navigation3 from cancelling a
+// partially completed batch when it clears the route's ViewModel.
+private val confirmedVersionDeletionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+internal fun versionDeletionBatches(versions: List<AppVersion>): List<List<AppVersion>> =
+    versions.chunked(BatchDeleteVersionsRequest.MAX_VERSION_IDS)
+
 class AppDetailViewModel(initialApp: App) : ViewModel() {
     private val appId = initialApp.id
-    private val _state = MutableStateFlow(AppDetailState(app = initialApp))
+    private val completedDeletedVersionIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _state = MutableStateFlow(
+        AppDetailState(
+            app = initialApp,
+            deletingVersionIds = versionDeletionCoordinator.inFlightByApp.value[appId].orEmpty(),
+        )
+    )
     val state: StateFlow<AppDetailState> = _state.asStateFlow()
 
     init {
         load()
         _state.update { it.copy(following = isFollowing(appId)) }
+        viewModelScope.launch {
+            versionDeletionCoordinator.inFlightByApp.collect { inFlightByApp ->
+                _state.update {
+                    it.copy(deletingVersionIds = inFlightByApp[appId].orEmpty())
+                }
+            }
+        }
+        viewModelScope.launch {
+            versionDeletionCoordinator.completed.collect { completion ->
+                if (completion.appId != appId) return@collect
+                completedDeletedVersionIds.update { it + completion.deletedVersionIds }
+                _state.update { state ->
+                    state.copy(
+                        versions = state.versions.filterNot {
+                            it.id in completion.deletedVersionIds
+                        }
+                    )
+                }
+                viewModelScope.launch { refreshAfterCompletedDeletion() }
+            }
+        }
+    }
+
+    private suspend fun refreshAfterCompletedDeletion() {
+        val refreshedApp = runCatching { Api.app(appId) }.getOrNull()
+        val refreshedVersions = runCatching { Api.appVersions(appId) }.getOrNull()
+        if (refreshedApp == null && refreshedVersions == null) return
+        _state.update { state ->
+            state.copy(
+                app = refreshedApp ?: state.app,
+                versions = refreshedVersions?.items
+                    ?.filterNot { it.id in completedDeletedVersionIds.value }
+                    ?: state.versions,
+                nextPageToken = if (refreshedVersions != null) {
+                    refreshedVersions.nextPageToken
+                } else {
+                    state.nextPageToken
+                },
+            )
+        }
     }
 
     /** Refreshes the parent app row, including shareId changes made on the share screen. */
@@ -45,7 +103,9 @@ class AppDetailViewModel(initialApp: App) : ViewModel() {
                 val page = Api.appVersions(appId)
                 _state.update {
                     it.copy(
-                        versions = page.items,
+                        versions = page.items.filterNot {
+                            it.id in completedDeletedVersionIds.value
+                        },
                         nextPageToken = page.nextPageToken,
                         loading = false,
                     )
@@ -73,7 +133,9 @@ class AppDetailViewModel(initialApp: App) : ViewModel() {
                 val page = Api.appVersions(appId)
                 _state.update {
                     it.copy(
-                        versions = page.items,
+                        versions = page.items.filterNot {
+                            it.id in completedDeletedVersionIds.value
+                        },
                         nextPageToken = page.nextPageToken,
                         refreshing = false,
                     )
@@ -99,7 +161,11 @@ class AppDetailViewModel(initialApp: App) : ViewModel() {
                 val page = Api.appVersions(appId = appId, pageToken = token)
                 _state.update { state ->
                     state.copy(
-                        versions = (state.versions + page.items).distinctBy { it.id },
+                        versions = (
+                            state.versions + page.items.filterNot {
+                                it.id in completedDeletedVersionIds.value
+                            }
+                        ).distinctBy { it.id },
                         nextPageToken = page.nextPageToken,
                         loadingMore = false,
                     )
@@ -155,6 +221,60 @@ class AppDetailViewModel(initialApp: App) : ViewModel() {
             } catch (t: Throwable) {
                 _state.update { it.copy(message = t.message ?: "Delete failed") }
             }
+        }
+    }
+
+    /** Deletes selected builds in bounded server batches and removes every success immediately. */
+    fun deleteVersions(versions: Collection<AppVersion>) {
+        val candidates = versions
+            .asSequence()
+            .filter { it.appId == appId }
+            .distinctBy { it.id }
+            .toList()
+        val reservedIds = versionDeletionCoordinator.reserve(
+            appId = appId,
+            versionIds = candidates.mapTo(mutableSetOf()) { it.id },
+        )
+        if (reservedIds.isEmpty()) return
+        val requested = candidates.filter { it.id in reservedIds }
+        _state.update { state ->
+            state.copy(deletingVersionIds = state.deletingVersionIds + reservedIds)
+        }
+
+        confirmedVersionDeletionScope.launch {
+            val deletedIds = mutableSetOf<String>()
+            var firstFailure: Throwable? = null
+            versionDeletionBatches(requested).forEach { batch ->
+                try {
+                    val batchIds = batch.mapTo(mutableSetOf()) { it.id }
+                    val response = Api.deleteVersions(appId, batchIds)
+                    val confirmedDeletedIds = response.deletedVersionIds
+                        .filterTo(mutableSetOf()) { it in batchIds }
+                    deletedIds += confirmedDeletedIds
+                    _state.update { state ->
+                        state.copy(
+                            versions = state.versions.filterNot { it.id in confirmedDeletedIds },
+                        )
+                    }
+                } catch (t: Throwable) {
+                    if (firstFailure == null) firstFailure = t
+                }
+            }
+
+            val failedCount = requested.size - deletedIds.size
+            val deletedLabel = if (deletedIds.size == 1) "1 build" else "${deletedIds.size} builds"
+            val failedLabel = if (failedCount == 1) "1 build" else "$failedCount builds"
+            val message = when {
+                failedCount == 0 -> "Deleted $deletedLabel"
+                deletedIds.isEmpty() -> firstFailure?.message ?: "Couldn't delete $failedLabel"
+                else -> "Deleted $deletedLabel; couldn't delete $failedLabel"
+            }
+            _state.update { state -> state.copy(message = message) }
+            versionDeletionCoordinator.complete(
+                appId = appId,
+                reservedVersionIds = reservedIds,
+                deletedVersionIds = deletedIds,
+            )
         }
     }
 

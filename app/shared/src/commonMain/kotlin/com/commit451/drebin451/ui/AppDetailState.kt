@@ -12,7 +12,9 @@ data class AppDetailState(
     val loadingMore: Boolean = false,
     val nextPageToken: String? = null,
     val uploading: Boolean = false,
-    // Flips true once the whole app has been deleted, signalling the screen to navigate away.
+    // Confirmed builds still being deleted; cards stay disabled until each request finishes.
+    val deletingVersionIds: Set<String> = emptySet(),
+    // Flips true once the whole app has been deleted, signalling the screen to leave.
     val deleted: Boolean = false,
     // Whether this device follows the app (subscribed to its update topic); followBusy gates the toggle.
     val following: Boolean = false,

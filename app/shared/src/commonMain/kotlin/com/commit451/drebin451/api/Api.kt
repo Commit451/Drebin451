@@ -9,6 +9,8 @@ import com.commit451.drebin451.model.ApiKey
 import com.commit451.drebin451.model.ApiKeyCreated
 import com.commit451.drebin451.model.App
 import com.commit451.drebin451.model.AppVersion
+import com.commit451.drebin451.model.BatchDeleteVersionsRequest
+import com.commit451.drebin451.model.BatchDeleteVersionsResponse
 import com.commit451.drebin451.model.BillingSession
 import com.commit451.drebin451.model.Config
 import com.commit451.drebin451.model.CreateApiKeyRequest
@@ -181,6 +183,22 @@ object Api {
     /** Deletes a single uploaded version (APK). */
     suspend fun deleteVersion(appId: String, versionId: String) {
         client.delete("$baseUrl/apps/$appId/versions/$versionId").throwIfError()
+    }
+
+    /** Deletes one bounded batch of uploaded versions in a single backend request. */
+    suspend fun deleteVersions(
+        appId: String,
+        versionIds: Collection<String>,
+    ): BatchDeleteVersionsResponse {
+        val ids = versionIds.distinct()
+        require(ids.isNotEmpty()) { "Select at least one build to delete." }
+        require(ids.size <= BatchDeleteVersionsRequest.MAX_VERSION_IDS) {
+            "A batch may delete at most ${BatchDeleteVersionsRequest.MAX_VERSION_IDS} builds."
+        }
+        return client.post("$baseUrl/apps/$appId/versions/batch-delete") {
+            contentType(ContentType.Application.Json)
+            setBody(BatchDeleteVersionsRequest(ids))
+        }.bodyOrThrow()
     }
 
     /** Edits the note attached to a single uploaded APK version, returning the updated version. */

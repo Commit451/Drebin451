@@ -22,11 +22,17 @@ import kotlinx.coroutines.launch
 class HomeViewModel : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
+    private var appListRefreshGeneration = 0L
 
     init {
         refreshCurrentUser()
         load()
         checkStorageStatus()
+        viewModelScope.launch {
+            versionDeletionCoordinator.completed.collect {
+                silentRefresh()
+            }
+        }
     }
 
     private fun refreshCurrentUser() {
@@ -65,7 +71,9 @@ class HomeViewModel : ViewModel() {
     }
 
     fun load() {
+        val generation = ++appListRefreshGeneration
         viewModelScope.launch {
+            if (generation != appListRefreshGeneration) return@launch
             _state.update {
                 it.copy(
                     loading = true,
@@ -77,6 +85,7 @@ class HomeViewModel : ViewModel() {
             try {
                 val yours = Api.apps()
                 val shared = Api.sharedApps()
+                if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
                         apps = yours.items,
@@ -88,6 +97,7 @@ class HomeViewModel : ViewModel() {
                 }
                 checkStorageStatus()
             } catch (t: Throwable) {
+                if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
                         loading = false,
@@ -104,7 +114,9 @@ class HomeViewModel : ViewModel() {
      * didn't work should be visible.
      */
     fun refresh() {
+        val generation = ++appListRefreshGeneration
         viewModelScope.launch {
+            if (generation != appListRefreshGeneration) return@launch
             _state.update {
                 it.copy(
                     refreshing = true,
@@ -116,19 +128,23 @@ class HomeViewModel : ViewModel() {
             try {
                 val yours = Api.apps()
                 val shared = Api.sharedApps()
+                if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
                         apps = yours.items,
                         sharedApps = shared.items,
                         nextPageToken = yours.nextPageToken,
                         sharedNextPageToken = shared.nextPageToken,
+                        loading = false,
                         refreshing = false,
                     )
                 }
                 checkStorageStatus()
             } catch (t: Throwable) {
+                if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
+                        loading = false,
                         refreshing = false,
                         message = t.message ?: "Failed to refresh"
                     )
@@ -143,23 +159,32 @@ class HomeViewModel : ViewModel() {
      * than surfacing an error.
      */
     fun silentRefresh() {
+        val generation = ++appListRefreshGeneration
         viewModelScope.launch {
+            if (generation != appListRefreshGeneration) return@launch
             try {
                 fetchCurrentUser()
                 val yours = Api.apps()
                 val shared = Api.sharedApps()
+                if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
                         apps = yours.items,
                         sharedApps = shared.items,
                         nextPageToken = yours.nextPageToken,
                         sharedNextPageToken = shared.nextPageToken,
+                        loading = false,
+                        refreshing = false,
                         loadingMore = false,
                     )
                 }
             } catch (_: Throwable) {
+                if (generation != appListRefreshGeneration) return@launch
+                _state.update {
+                    it.copy(loading = false, refreshing = false, loadingMore = false)
+                }
             }
-            checkStorageStatus()
+            if (generation == appListRefreshGeneration) checkStorageStatus()
         }
     }
 

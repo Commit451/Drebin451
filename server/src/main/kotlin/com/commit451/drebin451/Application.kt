@@ -14,6 +14,8 @@ import com.commit451.drebin451.firebase.requireUser
 import com.commit451.drebin451.model.ApiKey
 import com.commit451.drebin451.model.ApiKeyCreated
 import com.commit451.drebin451.model.AppVersion
+import com.commit451.drebin451.model.BatchDeleteVersionsRequest
+import com.commit451.drebin451.model.BatchDeleteVersionsResponse
 import com.commit451.drebin451.model.CreateApiKeyRequest
 import com.commit451.drebin451.model.PasswordResetRequest
 import com.commit451.drebin451.model.PlanIds
@@ -106,6 +108,16 @@ internal fun isAuthorizedCronSecret(presented: String?, configured: String?): Bo
 }
 
 internal fun normalizeVersionNote(note: String): String = note.trim().take(MAX_NOTE_LENGTH)
+
+internal fun normalizedBatchVersionIds(versionIds: List<String>): List<String> {
+    require(versionIds.isNotEmpty()) { "Select at least one build to delete." }
+    require(versionIds.size <= BatchDeleteVersionsRequest.MAX_VERSION_IDS) {
+        "A batch may delete at most ${BatchDeleteVersionsRequest.MAX_VERSION_IDS} builds."
+    }
+    val normalized = versionIds.map { it.trim() }
+    require(normalized.none { it.isEmpty() }) { "Build IDs cannot be blank." }
+    return normalized.distinct()
+}
 
 internal fun decodeUploadHeader(value: String?, maxBytes: Int): String {
     if (value.isNullOrBlank()) return ""
@@ -723,6 +735,24 @@ fun Application.module() {
                 Firebasis.DeleteAppResult.NotFound -> call.respond(HttpStatusCode.NotFound)
                 Firebasis.DeleteAppResult.Forbidden -> call.respond(HttpStatusCode.Forbidden)
                 is Firebasis.DeleteAppResult.Deleted -> call.respond(HttpStatusCode.NoContent)
+            }
+        }
+
+        // Delete up to 100 uploaded versions in one server-side transaction (owner only).
+        post("/$prefix/apps/{appId}/versions/batch-delete") {
+            val auth = requireUser() ?: return@post
+            val appId = call.parameters["appId"] ?: throw IllegalArgumentException("Missing appId")
+            val request = call.receive<BatchDeleteVersionsRequest>()
+            val versionIds = normalizedBatchVersionIds(request.versionIds)
+            when (val result = Firebasis.deleteVersions(appId, versionIds.toSet(), auth.uid)) {
+                Firebasis.DeleteVersionsResult.NotFound -> call.respond(HttpStatusCode.NotFound)
+                Firebasis.DeleteVersionsResult.Forbidden -> call.respond(HttpStatusCode.Forbidden)
+                is Firebasis.DeleteVersionsResult.Deleted -> call.respond(
+                    BatchDeleteVersionsResponse(
+                        deletedVersionIds = result.versions.map { it.id },
+                        missingVersionIds = result.missingVersionIds,
+                    )
+                )
             }
         }
 
