@@ -52,6 +52,80 @@ class AppNavigatorTest {
     }
 
     @Test
+    fun pop_is_consumed_by_contextual_back_interceptor() {
+        val history = RecordingNavigationHistory(requestBackResult = false)
+        val backStack = mutableListOf<AppRoute>(HomeRoute, SettingsRoute)
+        val navigator = AppNavigator(backStack, history)
+        var consumed = 0
+        val removeInterceptor = navigator.interceptBack {
+            consumed++
+            true
+        }
+
+        navigator.pop()
+
+        assertEquals(1, consumed)
+        assertEquals(listOf<AppRoute>(HomeRoute, SettingsRoute), backStack)
+        assertEquals(0, history.backRequests)
+
+        removeInterceptor()
+        navigator.pop()
+
+        assertEquals(listOf<AppRoute>(HomeRoute), backStack)
+    }
+
+    @Test
+    fun programmaticPop_bypasses_contextual_back_interceptor() {
+        val history = RecordingNavigationHistory(requestBackResult = false)
+        val backStack = mutableListOf<AppRoute>(HomeRoute, SettingsRoute)
+        val navigator = AppNavigator(backStack, history)
+        var intercepted = false
+        navigator.interceptBack {
+            intercepted = true
+            true
+        }
+
+        navigator.popIgnoringInterceptor()
+
+        assertFalse(intercepted)
+        assertEquals(listOf<AppRoute>(HomeRoute), backStack)
+        assertEquals(1, history.backRequests)
+    }
+
+    @Test
+    fun browserProgrammaticPop_bypassesInterceptorWhenHistoryEventArrives() {
+        val history = RecordingNavigationHistory(requestBackResult = true)
+        val backStack = mutableListOf<AppRoute>(HomeRoute, SettingsRoute)
+        val navigator = AppNavigator(backStack, history)
+        var intercepted = false
+        navigator.interceptBack {
+            intercepted = true
+            true
+        }
+
+        navigator.popIgnoringInterceptor()
+        assertEquals(listOf<AppRoute>(HomeRoute, SettingsRoute), backStack)
+
+        navigator.popFromBrowser()
+
+        assertFalse(intercepted)
+        assertEquals(listOf<AppRoute>(HomeRoute), backStack)
+    }
+
+    @Test
+    fun browserBack_replaces_consumed_history_entry() {
+        val history = RecordingNavigationHistory()
+        val backStack = mutableListOf<AppRoute>(HomeRoute, SettingsRoute)
+        val navigator = AppNavigator(backStack, history)
+        navigator.interceptBack { true }
+
+        navigator.popFromBrowser()
+
+        assertEquals(listOf<AppRoute>(HomeRoute, SettingsRoute), backStack)
+        assertEquals(1, history.pushes)
+    }
+
+    @Test
     fun replaceAll_clears_stack_and_replaces_current_history_entry() {
         val history = RecordingNavigationHistory()
         val backStack = mutableListOf<AppRoute>(SplashRoute, LoginRoute())

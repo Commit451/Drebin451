@@ -1,6 +1,8 @@
 package com.commit451.drebin451.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -108,10 +110,14 @@ private fun PaddingValues.withoutBottom(): PaddingValues {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun DrebinGradientCard(
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = drebinGradientColors()
@@ -121,7 +127,20 @@ internal fun DrebinGradientCard(
     )
     val cardElevation =
         CardDefaults.cardElevation(defaultElevation = if (colors.dark) 8.dp else 6.dp)
-    if (onClick == null) {
+    if (onLongClick != null) {
+        Card(
+            modifier = modifier.combinedClickable(
+                enabled = enabled,
+                onClick = onClick ?: {},
+                onLongClickLabel = onLongClickLabel,
+                onLongClick = onLongClick,
+            ),
+            shape = DrebinGradientCardShape,
+            colors = cardColors,
+            elevation = cardElevation,
+            content = content,
+        )
+    } else if (onClick == null) {
         Card(
             modifier = modifier,
             shape = DrebinGradientCardShape,
@@ -132,6 +151,7 @@ internal fun DrebinGradientCard(
     } else {
         Card(
             onClick = onClick,
+            enabled = enabled,
             modifier = modifier,
             shape = DrebinGradientCardShape,
             colors = cardColors,

@@ -20,12 +20,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -44,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +55,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -95,6 +105,27 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
     var versionPendingDelete by remember { mutableStateOf<AppVersion?>(null) }
     var versionPendingNoteEdit by remember { mutableStateOf<AppVersion?>(null) }
     var versionPendingNoteDelete by remember { mutableStateOf<AppVersion?>(null) }
+    var selection by remember { mutableStateOf(VersionSelection()) }
+    var versionsPendingDelete by remember { mutableStateOf<List<AppVersion>>(emptyList()) }
+
+    // Match Gmail's contextual mode: dismiss confirmation first, then clear selection when toolbar X,
+    // Android system Back, or browser Back is used before allowing route navigation.
+    DisposableEffect(navigator, selection.active, versionsPendingDelete.isNotEmpty()) {
+        val shouldIntercept = selection.active || versionsPendingDelete.isNotEmpty()
+        val removeInterceptor = if (shouldIntercept) {
+            navigator.interceptBack {
+                if (versionsPendingDelete.isNotEmpty()) {
+                    versionsPendingDelete = emptyList()
+                } else {
+                    selection = selection.clear()
+                }
+                true
+            }
+        } else {
+            null
+        }
+        onDispose { removeInterceptor?.invoke() }
+    }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -113,7 +144,13 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
 
     // The app itself is gone — leave the now-empty detail screen.
     LaunchedEffect(state.deleted) {
-        if (state.deleted) navigator.pop()
+        if (state.deleted) navigator.popIgnoringInterceptor()
+    }
+
+    // Refreshes and successful deletes can remove rows while selection mode is open. Keep only
+    // currently loaded builds so the contextual count and Delete action never target stale rows.
+    LaunchedEffect(state.versions) {
+        selection = selection.retainAvailable(state.versions.mapTo(mutableSetOf()) { it.id })
     }
 
     // Returning from the share screen may have refreshed the app's shareId; pick it up before the
@@ -127,97 +164,122 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AppIcon(
-                            imageUrl = app.imageUrl,
-                            contentDescription = null,
-                            size = 36.dp,
+                    if (selection.active) {
+                        AppBarTitleText(
+                            text = "${selection.versionIds.size} selected",
+                            maxLines = 1,
                         )
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            AppBarTitleText(
-                                text = app.label.ifBlank { app.applicationId },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AppIcon(
+                                imageUrl = app.imageUrl,
+                                contentDescription = null,
+                                size = 36.dp,
                             )
-                            AppBarSubtitleText(
-                                text = app.applicationId,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navigator.pop() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (showFollow) {
-                        IconButton(
-                            onClick = {
-                                if (state.following) {
-                                    vm.toggleFollow()
-                                } else {
-                                    // Opting in to notifications — request the permission first.
-                                    requestNotifPermission = true
-                                }
-                            },
-                            enabled = !state.followBusy,
-                        ) {
-                            // A spinner while the subscribe/unsubscribe is in flight makes "working"
-                            // distinct from "broken" — otherwise the button just greys out. The icon
-                            // shows the resulting state: a bell when following, a struck-through bell
-                            // when not.
-                            if (state.followBusy) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                AppBarTitleText(
+                                    text = app.label.ifBlank { app.applicationId },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
-                            } else {
-                                Icon(
-                                    imageVector = if (state.following) {
-                                        Icons.Filled.Notifications
-                                    } else {
-                                        Icons.Filled.NotificationsOff
-                                    },
-                                    contentDescription = if (state.following) "Unfollow" else "Follow",
+                                AppBarSubtitleText(
+                                    text = app.applicationId,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
                     }
-                    Box {
-                        IconButton(onClick = { appMenuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "App options")
+                },
+                navigationIcon = {
+                    if (selection.active) {
+                        IconButton(onClick = { selection = selection.clear() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close selection")
                         }
-                        DropdownMenu(
-                            expanded = appMenuExpanded,
-                            onDismissRequest = { appMenuExpanded = false },
+                    } else {
+                        IconButton(onClick = { navigator.pop() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                },
+                actions = {
+                    if (selection.active) {
+                        IconButton(
+                            onClick = {
+                                versionsPendingDelete = state.versions.filter {
+                                    it.id in selection.versionIds
+                                }
+                            },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Share app") },
+                            Icon(Icons.Default.Delete, contentDescription = "Delete selected builds")
+                        }
+                    } else {
+                        if (showFollow) {
+                            IconButton(
                                 onClick = {
-                                    appMenuExpanded = false
-                                    navigator.push(AppShareRoute(app))
+                                    if (state.following) {
+                                        vm.toggleFollow()
+                                    } else {
+                                        // Opting in to notifications — request the permission first.
+                                        requestNotifPermission = true
+                                    }
                                 },
-                            )
-                            if (isOwner) {
+                                enabled = !state.followBusy,
+                            ) {
+                                // A spinner while the subscribe/unsubscribe is in flight makes "working"
+                                // distinct from "broken" — otherwise the button just greys out. The icon
+                                // shows the resulting state: a bell when following, a struck-through bell
+                                // when not.
+                                if (state.followBusy) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (state.following) {
+                                            Icons.Filled.Notifications
+                                        } else {
+                                            Icons.Filled.NotificationsOff
+                                        },
+                                        contentDescription = if (state.following) "Unfollow" else "Follow",
+                                    )
+                                }
+                            }
+                        }
+                        Box {
+                            IconButton(onClick = { appMenuExpanded = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "App options")
+                            }
+                            DropdownMenu(
+                                expanded = appMenuExpanded,
+                                onDismissRequest = { appMenuExpanded = false },
+                            ) {
                                 DropdownMenuItem(
-                                    text = { Text("Delete app") },
+                                    text = { Text("Share app") },
                                     onClick = {
                                         appMenuExpanded = false
-                                        confirmDeleteApp = true
+                                        navigator.push(AppShareRoute(app))
                                     },
                                 )
-                            } else {
-                                DropdownMenuItem(
-                                    text = { Text("Delete from Shared") },
-                                    onClick = {
-                                        appMenuExpanded = false
-                                        confirmDeleteShared = true
-                                    },
-                                )
+                                if (isOwner) {
+                                    DropdownMenuItem(
+                                        text = { Text("Delete app") },
+                                        onClick = {
+                                            appMenuExpanded = false
+                                            confirmDeleteApp = true
+                                        },
+                                    )
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text("Delete from Shared") },
+                                        onClick = {
+                                            appMenuExpanded = false
+                                            confirmDeleteShared = true
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -226,7 +288,7 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
             )
         },
         floatingActionButton = {
-            if (isOwner) {
+            if (isOwner && !selection.active) {
                 ExtendedFloatingActionButton(
                     onClick = { if (!state.uploading) launchPicker() },
                     icon = { Icon(Icons.Filled.Add, contentDescription = null) },
@@ -268,6 +330,9 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
                                     version = version,
                                     canDelete = isOwner,
                                     canEditNote = isOwner,
+                                    deleting = version.id in state.deletingVersionIds,
+                                    selectionMode = selection.active,
+                                    selected = version.id in selection.versionIds,
                                     installSupported = installer.supported,
                                     installActionLabel = installer.actionLabel,
                                     installBusyLabel = installer.busyLabel,
@@ -283,6 +348,16 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
                                         )
                                     },
                                     onInstall = { installer.install(version) },
+                                    onToggleSelection = {
+                                        selection = selection.toggle(version.id)
+                                    },
+                                    onLongClick = if (
+                                        isOwner && version.id !in state.deletingVersionIds
+                                    ) {
+                                        { selection = selection.select(version.id) }
+                                    } else {
+                                        null
+                                    },
                                     onEditNote = { versionPendingNoteEdit = version },
                                     onDeleteNote = { versionPendingNoteDelete = version },
                                     onDelete = { versionPendingDelete = version },
@@ -364,6 +439,26 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
             },
             dismissButton = {
                 TextButton(onClick = { confirmDeleteShared = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (versionsPendingDelete.isNotEmpty()) {
+        val count = versionsPendingDelete.size
+        val buildsLabel = if (count == 1) "this build" else "these $count builds"
+        AlertDialog(
+            onDismissRequest = { versionsPendingDelete = emptyList() },
+            title = { Text(if (count == 1) "Delete build?" else "Delete builds?") },
+            text = { Text("This permanently deletes $buildsLabel. This can't be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteVersions(versionsPendingDelete)
+                    versionsPendingDelete = emptyList()
+                    selection = selection.clear()
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { versionsPendingDelete = emptyList() }) { Text("Cancel") }
             },
         )
     }
@@ -455,12 +550,17 @@ private fun VersionCard(
     version: AppVersion,
     canDelete: Boolean,
     canEditNote: Boolean,
+    deleting: Boolean,
+    selectionMode: Boolean,
+    selected: Boolean,
     installSupported: Boolean,
     installActionLabel: String,
     installBusyLabel: String,
     installing: Boolean,
     onOpen: () -> Unit,
     onInstall: () -> Unit,
+    onToggleSelection: () -> Unit,
+    onLongClick: (() -> Unit)?,
     onEditNote: () -> Unit,
     onDeleteNote: () -> Unit,
     onDelete: () -> Unit,
@@ -471,21 +571,47 @@ private fun VersionCard(
         else -> version.fileName
     }
     var menuExpanded by remember { mutableStateOf(false) }
+    val cardModifier = if (selectionMode) {
+        Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                role = Role.Checkbox
+                toggleableState = if (selected) ToggleableState.On else ToggleableState.Off
+            }
+    } else {
+        Modifier.fillMaxWidth()
+    }
     DrebinGradientCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onOpen,
+        modifier = cardModifier,
+        enabled = !deleting,
+        onClick = if (selectionMode) onToggleSelection else onOpen,
+        onLongClick = onLongClick,
+        onLongClickLabel = "Select build",
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = null,
+                        modifier = Modifier.clearAndSetSemantics { },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 Text(
                     title,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
-                if (canEditNote || canDelete) {
+                if (deleting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else if (!selectionMode && (canEditNote || canDelete)) {
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(Icons.Default.MoreHoriz, contentDescription = "Version options")
@@ -547,7 +673,7 @@ private fun VersionCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (installSupported) {
+            if (installSupported && !selectionMode && !deleting) {
                 Spacer(Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
