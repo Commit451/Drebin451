@@ -65,7 +65,7 @@ import com.commit451.drebin451.navigation.LocalAppNavigator
 import com.commit451.drebin451.navigation.SettingsRoute
 import com.commit451.drebin451.navigation.SubscriptionRoute
 import com.commit451.drebin451.push.RequestNotificationPermission
-import com.commit451.drebin451.util.formatDateTime
+import com.commit451.drebin451.util.formatRelativeTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -422,7 +422,7 @@ private fun AppCard(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "Updated ${formatDateTime(app.updatedAt)}",
+                    "Updated ${formatRelativeTime(app.updatedAt)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
