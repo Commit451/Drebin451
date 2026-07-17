@@ -64,6 +64,27 @@ internal fun App.withRecomputedVersionAggregate(remaining: List<AppVersion>): Ap
     )
 }
 
+internal data class BatchVersionDeletionPlan(
+    val deletedVersions: List<AppVersion>,
+    val missingVersionIds: List<String>,
+    val remainingVersions: List<AppVersion>,
+    val releasedStorageBytes: Long,
+)
+
+internal fun batchVersionDeletionPlan(
+    versions: List<AppVersion>,
+    requestedVersionIds: Set<String>,
+): BatchVersionDeletionPlan {
+    val existingIds = versions.mapTo(mutableSetOf()) { it.id }
+    val deletedVersions = versions.filter { it.id in requestedVersionIds }
+    return BatchVersionDeletionPlan(
+        deletedVersions = deletedVersions,
+        missingVersionIds = requestedVersionIds.filterNot { it in existingIds },
+        remainingVersions = versions.filterNot { it.id in requestedVersionIds },
+        releasedStorageBytes = deletedVersions.sumOf { it.fileSizeBytes.coerceAtLeast(0) },
+    )
+}
+
 private const val ApkStoragePrefix = "apks/"
 private const val IconStoragePrefix = "icons/"
 
@@ -547,6 +568,15 @@ object Firebasis {
         data class Deleted(val version: AppVersion) : DeleteVersionResult()
     }
 
+    sealed class DeleteVersionsResult {
+        object NotFound : DeleteVersionsResult()
+        object Forbidden : DeleteVersionsResult()
+        data class Deleted(
+            val versions: List<AppVersion>,
+            val missingVersionIds: List<String>,
+        ) : DeleteVersionsResult()
+    }
+
     data class DeleteAccountResult(
         val deletedAppCount: Int,
         val deletedApiKeyCount: Int,
@@ -745,6 +775,56 @@ object Firebasis {
 
         if (result is DeleteVersionResult.Deleted) {
             deleteBlob(result.version.storagePath)
+        }
+        return result
+    }
+
+    /**
+     * Deletes up to one API batch of versions in a single Firestore transaction. Storage usage and
+     * the parent aggregate are updated once, then B2 objects are cleaned up sequentially so a large
+     * selection cannot fan out dozens of concurrent storage requests.
+     */
+    suspend fun deleteVersions(
+        appId: String,
+        versionIds: Set<String>,
+        requesterUid: String,
+    ): DeleteVersionsResult {
+        val appRef = appDocument(appId)
+        val result = firestore.runTransaction { txn ->
+            val app = txn.get(appRef).get().toObject(App::class.java)
+                ?: return@runTransaction DeleteVersionsResult.NotFound
+            if (app.ownerUserId != requesterUid) {
+                return@runTransaction DeleteVersionsResult.Forbidden
+            }
+
+            val versions = txn.get(versionsCollection(appId))
+                .get()
+                .documents
+                .mapNotNull { it.toObject(AppVersion::class.java) }
+            val plan = batchVersionDeletionPlan(versions, versionIds)
+            if (plan.deletedVersions.any { it.ownerUserId != requesterUid }) {
+                return@runTransaction DeleteVersionsResult.Forbidden
+            }
+
+            if (plan.deletedVersions.isNotEmpty()) {
+                releaseStorageInTransaction(
+                    txn = txn,
+                    ref = userDocument(app.ownerUserId),
+                    bytes = plan.releasedStorageBytes,
+                )
+                plan.deletedVersions.forEach { version ->
+                    txn.delete(versionDocument(appId, version.id))
+                }
+                txn.set(appRef, app.withRecomputedVersionAggregate(plan.remainingVersions))
+            }
+            DeleteVersionsResult.Deleted(
+                versions = plan.deletedVersions,
+                missingVersionIds = plan.missingVersionIds,
+            )
+        }.await()
+
+        if (result is DeleteVersionsResult.Deleted) {
+            result.versions.forEach { version -> deleteBlob(version.storagePath) }
         }
         return result
     }

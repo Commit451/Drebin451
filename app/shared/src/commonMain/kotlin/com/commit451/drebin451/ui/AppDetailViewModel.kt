@@ -9,6 +9,7 @@ import com.commit451.drebin451.follow.isFollowing
 import com.commit451.drebin451.follow.unfollowApp
 import com.commit451.drebin451.model.App
 import com.commit451.drebin451.model.AppVersion
+import com.commit451.drebin451.model.BatchDeleteVersionsRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,9 @@ import kotlinx.coroutines.launch
 // bounded destructive operation outside viewModelScope prevents Navigation3 from cancelling a
 // partially completed batch when it clears the route's ViewModel.
 private val confirmedVersionDeletionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+internal fun versionDeletionBatches(versions: List<AppVersion>): List<List<AppVersion>> =
+    versions.chunked(BatchDeleteVersionsRequest.MAX_VERSION_IDS)
 
 class AppDetailViewModel(initialApp: App) : ViewModel() {
     private val appId = initialApp.id
@@ -220,7 +224,7 @@ class AppDetailViewModel(initialApp: App) : ViewModel() {
         }
     }
 
-    /** Deletes selected builds one by one and removes every successful deletion immediately. */
+    /** Deletes selected builds in bounded server batches and removes every success immediately. */
     fun deleteVersions(versions: Collection<AppVersion>) {
         val candidates = versions
             .asSequence()
@@ -240,13 +244,16 @@ class AppDetailViewModel(initialApp: App) : ViewModel() {
         confirmedVersionDeletionScope.launch {
             val deletedIds = mutableSetOf<String>()
             var firstFailure: Throwable? = null
-            requested.forEach { version ->
+            versionDeletionBatches(requested).forEach { batch ->
                 try {
-                    Api.deleteVersion(version.appId, version.id)
-                    deletedIds += version.id
+                    val batchIds = batch.mapTo(mutableSetOf()) { it.id }
+                    val response = Api.deleteVersions(appId, batchIds)
+                    val confirmedDeletedIds = response.deletedVersionIds
+                        .filterTo(mutableSetOf()) { it in batchIds }
+                    deletedIds += confirmedDeletedIds
                     _state.update { state ->
                         state.copy(
-                            versions = state.versions.filterNot { it.id == version.id },
+                            versions = state.versions.filterNot { it.id in confirmedDeletedIds },
                         )
                     }
                 } catch (t: Throwable) {
@@ -259,7 +266,7 @@ class AppDetailViewModel(initialApp: App) : ViewModel() {
             val failedLabel = if (failedCount == 1) "1 build" else "$failedCount builds"
             val message = when {
                 failedCount == 0 -> "Deleted $deletedLabel"
-                deletedIds.isEmpty() -> firstFailure?.message ?: "Delete failed"
+                deletedIds.isEmpty() -> firstFailure?.message ?: "Couldn't delete $failedLabel"
                 else -> "Deleted $deletedLabel; couldn't delete $failedLabel"
             }
             _state.update { state -> state.copy(message = message) }
