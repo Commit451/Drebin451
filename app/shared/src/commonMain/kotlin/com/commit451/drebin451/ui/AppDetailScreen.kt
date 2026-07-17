@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -205,6 +206,18 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
                 },
                 actions = {
                     if (selection.active) {
+                        val selectableVersionIds = state.versions
+                            .asSequence()
+                            .filterNot { it.id in state.deletingVersionIds }
+                            .mapTo(mutableSetOf()) { it.id }
+                        IconButton(
+                            onClick = {
+                                selection = selection.selectAll(selectableVersionIds)
+                            },
+                            enabled = selectableVersionIds.any { it !in selection.versionIds },
+                        ) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Select all builds")
+                        }
                         IconButton(
                             onClick = {
                                 versionsPendingDelete = state.versions.filter {

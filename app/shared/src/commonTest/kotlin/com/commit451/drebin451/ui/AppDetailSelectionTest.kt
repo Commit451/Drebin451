@@ -32,6 +32,14 @@ class AppDetailSelectionTest {
     }
 
     @Test
+    fun selectAllBuilds_selectsEveryAvailableBuild() {
+        val selection = VersionSelection(setOf("build-2"))
+            .selectAll(setOf("build-1", "build-2", "build-3"))
+
+        assertEquals(setOf("build-1", "build-2", "build-3"), selection.versionIds)
+    }
+
+    @Test
     fun retainAvailableBuilds_dropsSelectionsThatAreNoLongerLoaded() {
         val selection = VersionSelection(setOf("build-1", "build-2"))
 

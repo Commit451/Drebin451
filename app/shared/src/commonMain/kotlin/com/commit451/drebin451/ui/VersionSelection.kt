@@ -19,6 +19,9 @@ internal data class VersionSelection(
             },
         )
 
+    fun selectAll(availableVersionIds: Set<String>): VersionSelection =
+        copy(versionIds = availableVersionIds)
+
     fun retainAvailable(availableVersionIds: Set<String>): VersionSelection =
         copy(versionIds = versionIds intersect availableVersionIds)
 
