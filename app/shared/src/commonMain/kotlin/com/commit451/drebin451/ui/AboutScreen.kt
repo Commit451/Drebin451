@@ -905,16 +905,22 @@ private fun LandingFooter(
                 .fillMaxWidth()
                 .padding(horizontal = horizontalMargin, vertical = 28.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            DrebinLogo(
-                modifier = Modifier.size(28.dp),
-                contentDescription = null,
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "© 2026 Commit 451",
-                color = LandingMuted,
-                style = MaterialTheme.typography.bodyMedium
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                DrebinLogo(
+                    modifier = Modifier.size(28.dp),
+                    contentDescription = null,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "© 2026 Commit 451",
+                    color = LandingMuted,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            GitHubIcon(
+                modifier = Modifier.size(22.dp),
             )
         }
     }
