@@ -19,12 +19,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,11 +57,16 @@ actual fun LoginScreen(startOnSignUp: Boolean) {
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var register by rememberSaveable { mutableStateOf(startOnSignUp) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(state.status) {
         if (state.status == AuthStatus.SignedIn) {
             navigator.replaceAll(HomeRoute)
         }
+    }
+
+    LaunchedEffect(state.message) {
+        state.message?.let { snackbarHostState.showSnackbar(it) }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -130,17 +138,15 @@ actual fun LoginScreen(startOnSignUp: Boolean) {
                     textAlign = TextAlign.Center,
                 )
             }
-            val message = state.message
-            if (message != null) {
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center,
-                )
-            }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .safeContentPadding()
+                .padding(16.dp),
+        )
     }
 }
 

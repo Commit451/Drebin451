@@ -94,6 +94,31 @@ body.drebin-auth-active .compose-root {
     backdrop-filter: blur(18px);
 }
 
+.auth-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    box-sizing: border-box;
+    margin-bottom: 22px;
+    padding: 0 14px;
+    border: 1px solid var(--drebin-stroke);
+    border-radius: 999px;
+    background: rgba(13, 21, 23, 0.42);
+    color: var(--drebin-muted);
+    font-size: 0.9rem;
+    font-weight: 800;
+    text-decoration: none;
+    transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+.auth-back:hover,
+.auth-back:focus-visible {
+    border-color: var(--drebin-stroke-strong);
+    background: var(--drebin-surface-strong);
+    color: var(--drebin-text);
+}
+
 .auth-brand {
     display: flex;
     align-items: center;
@@ -270,16 +295,37 @@ body.drebin-auth-active .compose-root {
 }
 
 .auth-message {
-    min-height: 18px;
-    margin: 12px 0 0;
-    color: var(--drebin-accent);
-    font-size: 0.88rem;
-    line-height: 1.35;
-    text-align: center;
+    position: fixed;
+    left: 50%;
+    bottom: max(24px, env(safe-area-inset-bottom));
+    z-index: 30;
+    width: max-content;
+    max-width: min(560px, calc(100vw - 32px));
+    box-sizing: border-box;
+    margin: 0;
+    padding: 14px 18px;
+    border: 1px solid var(--drebin-stroke-strong);
+    border-radius: 14px;
+    background: var(--drebin-surface-strong);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.38);
+    color: var(--drebin-text);
+    font-size: 0.9rem;
+    font-weight: 650;
+    line-height: 1.4;
+    text-align: left;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 16px);
+    transition: opacity 180ms ease, transform 180ms ease;
 }
 
 .auth-message:empty {
     display: none;
+}
+
+.auth-message.is-visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
 }
 
 .auth-legal {

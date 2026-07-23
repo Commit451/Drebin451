@@ -60,6 +60,7 @@
             var googleSubmit = null;
             var registerMode = false;
             var busy = false;
+            var snackbarTimer = null;
 
             function byId(id) {
                 return document.getElementById(id);
@@ -184,7 +185,26 @@
                     : (registerMode ? 'Create Account' : 'Sign In');
                 el.google.textContent = busy ? 'Working...' : 'Continue with Google';
                 el.error.textContent = errorMessage || '';
-                el.message.textContent = successMessage || '';
+
+                if (snackbarTimer !== null) {
+                    window.clearTimeout(snackbarTimer);
+                    snackbarTimer = null;
+                }
+
+                var nextSuccessMessage = successMessage || '';
+                el.message.textContent = nextSuccessMessage;
+                el.message.classList.toggle('is-visible', Boolean(nextSuccessMessage));
+                el.message.setAttribute('aria-hidden', nextSuccessMessage ? 'false' : 'true');
+                if (nextSuccessMessage) {
+                    snackbarTimer = window.setTimeout(function () {
+                        el.message.classList.remove('is-visible');
+                        el.message.setAttribute('aria-hidden', 'true');
+                        snackbarTimer = window.setTimeout(function () {
+                            el.message.textContent = '';
+                            snackbarTimer = null;
+                        }, 180);
+                    }, 6000);
+                }
             };
         })();
 
@@ -298,6 +318,10 @@
 
 <main aria-hidden="true" class="auth-screen" hidden id="drebin-auth-screen">
     <section aria-labelledby="drebin-auth-title" class="auth-shell">
+        <a aria-label="Back to the Drebin451 home page" class="auth-back" href="/">
+            <span aria-hidden="true">←</span>
+            Back
+        </a>
         <div class="auth-brand">
             <img alt="" aria-hidden="true" class="auth-logo" height="56" src="/drebin451-logo.png"
                  width="56">
@@ -351,7 +375,8 @@
         <button class="auth-toggle" id="drebin-auth-toggle" type="button">
             Need an account? Sign up
         </button>
-        <p aria-live="polite" class="auth-message" id="drebin-auth-message" role="status"></p>
+        <p aria-atomic="true" aria-hidden="true" aria-live="polite" class="auth-message"
+           id="drebin-auth-message" role="status"></p>
         <p aria-live="polite" class="auth-error" id="drebin-auth-error" role="alert"></p>
 
         <nav aria-label="Legal" class="auth-legal">
