@@ -387,6 +387,9 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
                                     }
                                 }
                             }
+                            item(key = "bottom-spacer") {
+                                Spacer(Modifier.height(64.dp))
+                            }
                         }
                     }
                 }
