@@ -1,6 +1,7 @@
 package com.commit451.drebin451.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,7 +9,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -59,6 +61,12 @@ import com.commit451.drebin451.navigation.AboutRoute
 import com.commit451.drebin451.navigation.LocalAppNavigator
 import com.commit451.drebin451.navigation.LoginRoute
 import com.commit451.drebin451.navigation.PricingRoute
+import drebin451.app.shared.generated.resources.Res
+import drebin451.app.shared.generated.resources.landing_app_releases_screen
+import drebin451.app.shared.generated.resources.landing_home_screen
+import drebin451.app.shared.generated.resources.landing_release_detail_screen
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.painterResource
 
 private val LandingFallbackColors = LandingColors(
     background = Color(0xFF0D1517),
@@ -139,7 +147,7 @@ fun AboutScreen() {
             onDownloadApk = onDownloadApk,
         )
         SectionSpacer()
-        WorkflowSection(compact = compact)
+        ScreenshotSection(compact = compact)
         SectionSpacer()
         FeatureGrid(compact = compact)
     }
@@ -477,54 +485,66 @@ private fun DownloadApkButton(
     }
 }
 
-
 @Composable
-private fun WorkflowSection(compact: Boolean) {
-    CenteredSectionHeader(
-        eyebrow = "HOW IT WORKS",
-        title = "A private app store in three steps",
-        body = "Keep the release workflow simple for developers and obvious for testers.",
+private fun ScreenshotSection(compact: Boolean) {
+    val screenshots = listOf(
+        Res.drawable.landing_home_screen to "Drebin451 apps list",
+        Res.drawable.landing_app_releases_screen to "Drebin451 app release history",
+        Res.drawable.landing_release_detail_screen to "Drebin451 release details",
     )
-    Spacer(Modifier.height(28.dp))
+
     if (compact) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            StepCard(
-                "1",
-                "Upload an APK",
-                "Drebin451 reads package metadata, version codes, labels, icons, and release notes from each build."
-            )
-            StepCard(
-                "2",
-                "Share the app",
-                "Create an app-level link for trusted users while downloads stay authenticated and access checked."
-            )
-            StepCard(
-                "3",
-                "Install updates",
-                "Open links in the Android app, download releases, install APKs, and follow apps for new-build notifications."
-            )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            screenshots.forEach { (resource, contentDescription) ->
+                AppScreenshot(
+                    resource = resource,
+                    contentDescription = contentDescription,
+                    modifier = Modifier
+                        .widthIn(max = 360.dp)
+                        .fillMaxWidth(),
+                )
+            }
         }
     } else {
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            StepCard(
-                "1",
-                "Upload an APK",
-                "Drebin451 reads package metadata, version codes, labels, icons, and release notes from each build.",
-                Modifier.weight(1f)
-            )
-            StepCard(
-                "2",
-                "Share the app",
-                "Create an app-level link for trusted users while downloads stay authenticated and access checked.",
-                Modifier.weight(1f)
-            )
-            StepCard(
-                "3",
-                "Install updates",
-                "Open links in the Android app, download releases, install APKs, and follow apps for new-build notifications.",
-                Modifier.weight(1f)
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            screenshots.forEach { (resource, contentDescription) ->
+                AppScreenshot(
+                    resource = resource,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun AppScreenshot(
+    resource: DrawableResource,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = LandingSurface,
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, LandingStroke),
+    ) {
+        Image(
+            painter = painterResource(resource),
+            contentDescription = contentDescription,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1080f / 2410f),
+            contentScale = ContentScale.Fit,
+        )
     }
 }
 
@@ -768,44 +788,6 @@ private fun PricingNotes() {
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
         )
-    }
-}
-
-@Composable
-private fun StepCard(
-    number: String,
-    title: String,
-    body: String,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = LandingSurface),
-        border = BorderStroke(1.dp, LandingStroke),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .background(LandingAccent.copy(alpha = 0.18f), RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(number, color = LandingAccent, fontWeight = FontWeight.Black)
-            }
-            Text(
-                title,
-                color = LandingText,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(body, color = LandingMuted, style = MaterialTheme.typography.bodyMedium)
-        }
     }
 }
 
