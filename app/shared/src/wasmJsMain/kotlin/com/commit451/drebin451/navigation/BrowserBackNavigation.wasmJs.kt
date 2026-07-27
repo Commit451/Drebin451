@@ -6,11 +6,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 
-@JsFun("() => { window.drebinPushBrowserHistoryEntry(); }")
-internal external fun jsPushBrowserHistoryEntry()
+@JsFun("() => window.drebinCurrentBrowserHistoryIndex()")
+internal external fun jsCurrentBrowserHistoryIndex(): Int
 
-@JsFun("() => { window.drebinReplaceBrowserHistoryEntry(); }")
-internal external fun jsReplaceBrowserHistoryEntry()
+@JsFun("(routeToken) => { window.drebinPushBrowserHistoryEntry(routeToken); }")
+internal external fun jsPushBrowserHistoryEntry(routeToken: JsString)
+
+@JsFun("(routeToken) => { window.drebinReplaceBrowserHistoryEntry(routeToken); }")
+internal external fun jsReplaceBrowserHistoryEntry(routeToken: JsString)
+
+@JsFun("(routeToken, targetIndex) => { window.drebinRestoreBrowserHistoryEntry(routeToken, targetIndex); }")
+internal external fun jsRestoreBrowserHistoryEntry(routeToken: JsString, targetIndex: Int)
 
 @JsFun("() => window.drebinRequestBrowserBack()")
 internal external fun jsRequestBrowserBack(): Boolean
@@ -22,10 +28,14 @@ private external fun jsInstallBrowserBackHandler(callback: (JsAny?) -> Unit): Js
 private external fun jsDisposeBrowserBackHandler(dispose: JsAny)
 
 @Composable
-internal actual fun BrowserBackNavigationEffect(onBack: () -> Unit) {
-    val currentOnBack = rememberUpdatedState(onBack)
+internal actual fun BrowserBackNavigationEffect(
+    onHistoryChange: (BrowserHistoryChange) -> Unit,
+) {
+    val currentOnHistoryChange = rememberUpdatedState(onHistoryChange)
     DisposableEffect(Unit) {
-        val dispose = jsInstallBrowserBackHandler { currentOnBack.value() }
+        val dispose = jsInstallBrowserBackHandler { payload ->
+            decodeBrowserHistoryChange(payload.toString())?.let(currentOnHistoryChange.value)
+        }
         onDispose { jsDisposeBrowserBackHandler(dispose) }
     }
 }

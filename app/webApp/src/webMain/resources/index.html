@@ -43,20 +43,79 @@
         // Kotlin/JS and Kotlin/Wasm both call these globals from their platform actuals.
         (function () {
             var backHandlers = [];
+            var currentIndex = Number.isInteger(window.history.state && window.history.state.drebin451Index)
+                ? window.history.state.drebin451Index
+                : 0;
+            var currentGeneration = Number.isInteger(
+                window.history.state && window.history.state.drebin451Generation
+            ) ? window.history.state.drebin451Generation : 0;
+            var routeTokens = Object.create(null);
+            var pendingRestore = null;
+            var initialRouteToken = window.history.state && window.history.state.drebin451RouteToken;
 
-            function nextDrebinHistoryState() {
+            if (typeof initialRouteToken === 'string') {
+                routeTokens[currentIndex] = initialRouteToken;
+            }
+
+            function drebinHistoryState(index, routeToken) {
                 return {
                     drebin451: true,
-                    id: Date.now().toString(36) + Math.random().toString(36).slice(2)
+                    drebin451Index: index,
+                    drebin451Generation: currentGeneration,
+                    drebin451RouteToken: typeof routeToken === 'string' ? routeToken : null
                 };
             }
 
-            window.drebinPushBrowserHistoryEntry = function () {
-                window.history.pushState(nextDrebinHistoryState(), '', window.location.href);
+            function discardForwardRouteTokens() {
+                Object.keys(routeTokens).forEach(function (index) {
+                    if (Number(index) > currentIndex) delete routeTokens[index];
+                });
+            }
+
+            window.history.replaceState(
+                drebinHistoryState(currentIndex, routeTokens[currentIndex]),
+                '',
+                window.location.href
+            );
+
+            window.drebinCurrentBrowserHistoryIndex = function () {
+                return currentIndex;
             };
 
-            window.drebinReplaceBrowserHistoryEntry = function () {
-                window.history.replaceState(nextDrebinHistoryState(), '', window.location.href);
+            window.drebinPushBrowserHistoryEntry = function (routeToken) {
+                discardForwardRouteTokens();
+                currentIndex += 1;
+                routeTokens[currentIndex] = routeToken;
+                window.history.pushState(
+                    drebinHistoryState(currentIndex, routeToken),
+                    '',
+                    window.location.href
+                );
+            };
+
+            window.drebinReplaceBrowserHistoryEntry = function (routeToken) {
+                currentGeneration += 1;
+                routeTokens = Object.create(null);
+                routeTokens[currentIndex] = routeToken;
+                window.history.replaceState(
+                    drebinHistoryState(currentIndex, routeToken),
+                    '',
+                    window.location.href
+                );
+            };
+
+            window.drebinRestoreBrowserHistoryEntry = function (routeToken, targetIndex) {
+                if (!Number.isInteger(targetIndex) || targetIndex === currentIndex) {
+                    routeTokens[currentIndex] = routeToken;
+                    window.history.replaceState(
+                        drebinHistoryState(currentIndex, routeToken),
+                        '',
+                        window.location.href
+                    );
+                    return;
+                }
+                pendingRestore = { routeToken: routeToken, targetIndex: targetIndex };
+                window.history.go(targetIndex - currentIndex);
             };
 
             window.drebinRequestBrowserBack = function () {
@@ -73,7 +132,48 @@
             };
 
             window.addEventListener('popstate', function (event) {
-                backHandlers.slice().forEach(function (handler) { handler(event); });
+                var nextIndex = Number.isInteger(event.state && event.state.drebin451Index)
+                    ? event.state.drebin451Index
+                    : currentIndex - 1;
+                var nextGeneration = Number.isInteger(
+                    event.state && event.state.drebin451Generation
+                ) ? event.state.drebin451Generation : null;
+                var forwardRoutes = [];
+
+                if (pendingRestore) {
+                    currentIndex = nextIndex;
+                    if (nextIndex === pendingRestore.targetIndex) {
+                        routeTokens[currentIndex] = pendingRestore.routeToken;
+                        window.history.replaceState(
+                            drebinHistoryState(currentIndex, pendingRestore.routeToken),
+                            '',
+                            window.location.href
+                        );
+                    }
+                    pendingRestore = null;
+                    return;
+                }
+
+                if (nextIndex > currentIndex && nextGeneration === currentGeneration) {
+                    for (var index = currentIndex + 1; index <= nextIndex; index += 1) {
+                        var routeToken = routeTokens[index];
+                        if (typeof routeToken !== 'string' && index === nextIndex && event.state) {
+                            routeToken = event.state.drebin451RouteToken;
+                        }
+                        if (typeof routeToken === 'string') {
+                            routeTokens[index] = routeToken;
+                            forwardRoutes.push({ index: index, routeToken: routeToken });
+                        }
+                    }
+                }
+
+                var change = JSON.stringify({
+                    fromIndex: currentIndex,
+                    toIndex: nextIndex,
+                    forwardRoutes: forwardRoutes
+                });
+                currentIndex = nextIndex;
+                backHandlers.slice().forEach(function (handler) { handler(change); });
             });
         })();
 

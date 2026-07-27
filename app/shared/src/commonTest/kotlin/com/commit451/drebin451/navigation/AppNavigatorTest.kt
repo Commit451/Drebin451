@@ -25,7 +25,7 @@ class AppNavigatorTest {
 
     @Test
     fun pop_uses_browser_history_when_it_is_available() {
-        val history = RecordingNavigationHistory(requestBackResult = true)
+        val history = RecordingNavigationHistory(requestBackResult = true, initialIndex = 2)
         val backStack = mutableListOf<AppRoute>(HomeRoute, SettingsRoute, ApiKeysRoute)
         val navigator = AppNavigator(backStack, history)
 
@@ -34,9 +34,72 @@ class AppNavigatorTest {
         assertEquals(listOf<AppRoute>(HomeRoute, SettingsRoute, ApiKeysRoute), backStack)
         assertEquals(1, history.backRequests)
 
-        navigator.popFromBrowser()
+        navigator.navigateFromBrowser(BrowserHistoryChange(fromIndex = 2, toIndex = 1))
 
         assertEquals(listOf<AppRoute>(HomeRoute, SettingsRoute), backStack)
+    }
+
+    @Test
+    fun browserForward_restoresViewerRouteWithoutWritingAnotherHistoryEntry() {
+        val history = RecordingNavigationHistory(requestBackResult = true)
+        val viewerRoute = LandingImageViewerRoute(LandingScreenshot.AppsList)
+        val backStack = mutableListOf<AppRoute>(AboutRoute)
+        val navigator = AppNavigator(backStack, history)
+
+        navigator.push(viewerRoute)
+        navigator.navigateFromBrowser(
+            BrowserHistoryChange(fromIndex = 1, toIndex = 0),
+        )
+        navigator.navigateFromBrowser(
+            BrowserHistoryChange(
+                fromIndex = 0,
+                toIndex = 1,
+                forwardRoutes = listOf(BrowserHistoryRoute(index = 1, route = viewerRoute)),
+            ),
+        )
+
+        assertEquals(listOf<AppRoute>(AboutRoute, viewerRoute), backStack)
+        assertEquals(1, history.pushes)
+    }
+
+    @Test
+    fun browserForward_restoresMultipleRoutesInOrder() {
+        val history = RecordingNavigationHistory(requestBackResult = true)
+        val viewerRoute = LandingImageViewerRoute(LandingScreenshot.ReleaseDetails)
+        val backStack = mutableListOf<AppRoute>(AboutRoute)
+        val navigator = AppNavigator(backStack, history)
+
+        navigator.push(PricingRoute)
+        navigator.push(viewerRoute)
+        navigator.navigateFromBrowser(BrowserHistoryChange(fromIndex = 2, toIndex = 0))
+        navigator.navigateFromBrowser(
+            BrowserHistoryChange(
+                fromIndex = 0,
+                toIndex = 2,
+                forwardRoutes = listOf(
+                    BrowserHistoryRoute(index = 1, route = PricingRoute),
+                    BrowserHistoryRoute(index = 2, route = viewerRoute),
+                ),
+            ),
+        )
+
+        assertEquals(listOf<AppRoute>(AboutRoute, PricingRoute, viewerRoute), backStack)
+        assertEquals(2, history.pushes)
+    }
+
+    @Test
+    fun pushAfterBrowserBackBelowReplacedRoot_rebasesVisibleRoot() {
+        val history = RecordingNavigationHistory(initialIndex = 1)
+        val backStack = mutableListOf<AppRoute>(SplashRoute, LoginRoute())
+        val navigator = AppNavigator(backStack, history)
+
+        navigator.replaceAll(HomeRoute)
+        navigator.navigateFromBrowser(BrowserHistoryChange(fromIndex = 1, toIndex = 0))
+        navigator.push(SettingsRoute)
+
+        assertEquals(listOf<AppRoute>(HomeRoute, SettingsRoute), backStack)
+        assertEquals(2, history.replaces)
+        assertEquals(1, history.pushes)
     }
 
     @Test
@@ -94,7 +157,7 @@ class AppNavigatorTest {
 
     @Test
     fun browserProgrammaticPop_bypassesInterceptorWhenHistoryEventArrives() {
-        val history = RecordingNavigationHistory(requestBackResult = true)
+        val history = RecordingNavigationHistory(requestBackResult = true, initialIndex = 1)
         val backStack = mutableListOf<AppRoute>(HomeRoute, SettingsRoute)
         val navigator = AppNavigator(backStack, history)
         var intercepted = false
@@ -106,23 +169,59 @@ class AppNavigatorTest {
         navigator.popIgnoringInterceptor()
         assertEquals(listOf<AppRoute>(HomeRoute, SettingsRoute), backStack)
 
-        navigator.popFromBrowser()
+        navigator.navigateFromBrowser(BrowserHistoryChange(fromIndex = 1, toIndex = 0))
 
         assertFalse(intercepted)
         assertEquals(listOf<AppRoute>(HomeRoute), backStack)
     }
 
     @Test
-    fun browserBack_replaces_consumed_history_entry() {
-        val history = RecordingNavigationHistory()
+    fun browserBack_restores_consumed_history_position() {
+        val history = RecordingNavigationHistory(initialIndex = 1)
         val backStack = mutableListOf<AppRoute>(HomeRoute, SettingsRoute)
         val navigator = AppNavigator(backStack, history)
         navigator.interceptBack { true }
 
-        navigator.popFromBrowser()
+        navigator.navigateFromBrowser(BrowserHistoryChange(fromIndex = 1, toIndex = 0))
 
         assertEquals(listOf<AppRoute>(HomeRoute, SettingsRoute), backStack)
-        assertEquals(1, history.pushes)
+        assertEquals(0, history.pushes)
+        assertEquals(1, history.restores)
+        assertEquals(1, history.lastRestoreTargetIndex)
+    }
+
+    @Test
+    fun browserMultiStepBack_restoresConsumedSourceIndex() {
+        val history = RecordingNavigationHistory(initialIndex = 3)
+        val backStack = mutableListOf<AppRoute>(
+            HomeRoute,
+            SettingsRoute,
+            ApiKeysRoute,
+            SubscriptionRoute,
+        )
+        val navigator = AppNavigator(backStack, history)
+        navigator.interceptBack { true }
+
+        navigator.navigateFromBrowser(BrowserHistoryChange(fromIndex = 3, toIndex = 0))
+
+        assertEquals(
+            listOf<AppRoute>(HomeRoute, SettingsRoute, ApiKeysRoute, SubscriptionRoute),
+            backStack,
+        )
+        assertEquals(1, history.restores)
+        assertEquals(3, history.lastRestoreTargetIndex)
+    }
+
+    @Test
+    fun push_equalRoute_doesNotCreateDuplicateStackOrHistoryEntry() {
+        val history = RecordingNavigationHistory()
+        val backStack = mutableListOf<AppRoute>(HomeRoute)
+        val navigator = AppNavigator(backStack, history)
+
+        navigator.push(HomeRoute)
+
+        assertEquals(listOf<AppRoute>(HomeRoute), backStack)
+        assertEquals(0, history.pushes)
     }
 
     @Test
@@ -192,6 +291,7 @@ class AppNavigatorTest {
 
     private class RecordingNavigationHistory(
         private val requestBackResult: Boolean = false,
+        private val initialIndex: Int = 0,
     ) : AppNavigationHistory {
         var pushes = 0
             private set
@@ -199,13 +299,24 @@ class AppNavigatorTest {
             private set
         var backRequests = 0
             private set
+        var restores = 0
+            private set
+        var lastRestoreTargetIndex: Int? = null
+            private set
 
-        override fun pushEntry() {
+        override fun currentIndex(): Int = initialIndex
+
+        override fun pushEntry(routeToken: String) {
             pushes++
         }
 
-        override fun replaceEntry() {
+        override fun replaceEntry(routeToken: String) {
             replaces++
+        }
+
+        override fun restoreEntry(routeToken: String, targetIndex: Int) {
+            restores++
+            lastRestoreTargetIndex = targetIndex
         }
 
         override fun requestBack(): Boolean {

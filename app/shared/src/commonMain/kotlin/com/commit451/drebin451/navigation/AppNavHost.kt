@@ -28,6 +28,7 @@ import com.commit451.drebin451.ui.AppIconTheme
 import com.commit451.drebin451.ui.AppShareScreen
 import com.commit451.drebin451.ui.DebugScreen
 import com.commit451.drebin451.ui.HomeScreen
+import com.commit451.drebin451.ui.LandingImageViewerScreen
 import com.commit451.drebin451.ui.LoginScreen
 import com.commit451.drebin451.ui.PricingScreen
 import com.commit451.drebin451.ui.ReleaseDetailScreen
@@ -54,6 +55,7 @@ private val appEntryProvider = entryProvider<AppRoute> {
     entry<SplashRoute> { SplashScreen() }
     entry<AboutRoute> { AboutScreen() }
     entry<PricingRoute> { PricingScreen() }
+    entry<LandingImageViewerRoute> { route -> LandingImageViewerScreen(route) }
     entry<LoginRoute> { route -> LoginScreen(startOnSignUp = route.startOnSignUp) }
     entry<HomeRoute> { HomeScreen() }
     entry<DebugRoute> { DebugScreen() }
@@ -81,7 +83,7 @@ internal fun AppNavHost(
     navigator: AppNavigator,
 ) {
     val currentRoute = backStack.lastOrNull()
-    BrowserBackNavigationEffect(onBack = navigator::popFromBrowser)
+    BrowserBackNavigationEffect(onHistoryChange = navigator::navigateFromBrowser)
     PendingDeepLinkNavigationEffect(currentRoute = currentRoute, navigator = navigator)
 
     CompositionLocalProvider(LocalAppNavigator provides navigator) {

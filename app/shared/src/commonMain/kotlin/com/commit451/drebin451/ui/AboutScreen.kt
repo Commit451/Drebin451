@@ -3,6 +3,7 @@ package com.commit451.drebin451.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -49,6 +50,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -58,14 +62,11 @@ import com.commit451.drebin451.download.DREBIN451_LATEST_APK_DOWNLOAD_URL
 import com.commit451.drebin451.download.shouldShowDrebin451ApkDownload
 import com.commit451.drebin451.model.PlanLimits
 import com.commit451.drebin451.navigation.AboutRoute
+import com.commit451.drebin451.navigation.LandingImageViewerRoute
+import com.commit451.drebin451.navigation.LandingScreenshot
 import com.commit451.drebin451.navigation.LocalAppNavigator
 import com.commit451.drebin451.navigation.LoginRoute
 import com.commit451.drebin451.navigation.PricingRoute
-import drebin451.app.shared.generated.resources.Res
-import drebin451.app.shared.generated.resources.landing_app_releases_screen
-import drebin451.app.shared.generated.resources.landing_home_screen
-import drebin451.app.shared.generated.resources.landing_release_detail_screen
-import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 
 private val LandingFallbackColors = LandingColors(
@@ -147,7 +148,12 @@ fun AboutScreen() {
             onDownloadApk = onDownloadApk,
         )
         SectionSpacer()
-        ScreenshotSection(compact = compact)
+        ScreenshotSection(
+            compact = compact,
+            onScreenshotClick = { screenshot ->
+                navigator.push(LandingImageViewerRoute(screenshot))
+            },
+        )
         SectionSpacer()
         FeatureGrid(compact = compact)
     }
@@ -486,23 +492,20 @@ private fun DownloadApkButton(
 }
 
 @Composable
-private fun ScreenshotSection(compact: Boolean) {
-    val screenshots = listOf(
-        Res.drawable.landing_home_screen to "Drebin451 apps list",
-        Res.drawable.landing_app_releases_screen to "Drebin451 app release history",
-        Res.drawable.landing_release_detail_screen to "Drebin451 release details",
-    )
-
+private fun ScreenshotSection(
+    compact: Boolean,
+    onScreenshotClick: (LandingScreenshot) -> Unit,
+) {
     if (compact) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            screenshots.forEach { (resource, contentDescription) ->
+            LandingScreenshot.entries.forEach { screenshot ->
                 AppScreenshot(
-                    resource = resource,
-                    contentDescription = contentDescription,
+                    screenshot = screenshot,
+                    onClick = { onScreenshotClick(screenshot) },
                     modifier = Modifier
                         .widthIn(max = 360.dp)
                         .fillMaxWidth(),
@@ -514,10 +517,10 @@ private fun ScreenshotSection(compact: Boolean) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            screenshots.forEach { (resource, contentDescription) ->
+            LandingScreenshot.entries.forEach { screenshot ->
                 AppScreenshot(
-                    resource = resource,
-                    contentDescription = contentDescription,
+                    screenshot = screenshot,
+                    onClick = { onScreenshotClick(screenshot) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -527,19 +530,27 @@ private fun ScreenshotSection(compact: Boolean) {
 
 @Composable
 private fun AppScreenshot(
-    resource: DrawableResource,
-    contentDescription: String,
+    screenshot: LandingScreenshot,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier
+            .clickable(
+                onClickLabel = "View ${screenshot.contentDescription} fullscreen",
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .semantics(mergeDescendants = true) {
+                contentDescription = screenshot.contentDescription
+            },
         color = LandingSurface,
         shape = RoundedCornerShape(24.dp),
         border = BorderStroke(1.dp, LandingStroke),
     ) {
         Image(
-            painter = painterResource(resource),
-            contentDescription = contentDescription,
+            painter = painterResource(screenshot.resource),
+            contentDescription = null,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1080f / 2410f),
