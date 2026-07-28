@@ -392,7 +392,7 @@ private fun HeroCopy(
         Eyebrow("PRIVATE ANDROID DISTRIBUTION")
         Spacer(Modifier.height(16.dp))
         Text(
-            "Ship private Android builds without a public store.",
+            "Ship and share Android builds with ease",
             style = MaterialTheme.typography.displayMedium.copy(lineHeight = 60.sp),
             color = LandingText,
             fontWeight = FontWeight.Black,
