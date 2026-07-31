@@ -23,6 +23,7 @@ env:
   STRIPE_CHECKOUT_SUCCESS_URL: https://drebin451.com?billing=success
   STRIPE_CHECKOUT_CANCEL_URL: https://drebin451.com?billing=cancelled
   STRIPE_PORTAL_RETURN_URL: https://drebin451.com
+  STRIPE_RECONCILIATION_SCHEDULER_JOB: drebin451-stripe-reconciliation
 
 jobs:
   test:
@@ -206,6 +207,47 @@ jobs:
             --remove-env-vars "B2_KEY_ID,B2_APPLICATION_KEY" \
             --update-env-vars "PUBLIC_BASE_URL=${{ env.PUBLIC_BASE_URL }},STRIPE_RETURN_URL=${{ env.STRIPE_RETURN_URL }},STRIPE_CHECKOUT_SUCCESS_URL=${{ env.STRIPE_CHECKOUT_SUCCESS_URL }},STRIPE_CHECKOUT_CANCEL_URL=${{ env.STRIPE_CHECKOUT_CANCEL_URL }},STRIPE_PORTAL_RETURN_URL=${{ env.STRIPE_PORTAL_RETURN_URL }},STRIPE_PRO_PRICE_ID=$STRIPE_PRO_PRICE_ID,B2_BUCKET=${{ env.B2_BUCKET }},B2_ENDPOINT=${{ env.B2_ENDPOINT }},B2_REGION=${{ env.B2_REGION }},FIREBASE_STORAGE_BUCKET=${{ env.FIREBASE_STORAGE_BUCKET }},DREBIN451_FIREBASE_WEB_API_KEY=$DREBIN451_FIREBASE_WEB_API_KEY" \
             --update-secrets "FIREBASE_SERVICE_ACCOUNT_BASE64=drebin451-firebase-admin-json-base64:latest,B2_KEY_ID=drebin451-b2-key-id:latest,B2_APPLICATION_KEY=drebin451-b2-application-key:latest,STRIPE_SECRET_KEY=drebin451-stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=drebin451-stripe-webhook-secret:latest,DREBIN451_CRON_SECRET=drebin451-cron-secret:latest"
+
+      - name: Configure nightly Stripe reconciliation
+        env:
+          DREBIN451_CRON_SECRET: ${{ secrets.DREBIN451_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DREBIN451_CRON_SECRET" ]; then
+            echo "Required GitHub Actions secret DREBIN451_CRON_SECRET is missing." >&2
+            exit 1
+          fi
+
+          job="${{ env.STRIPE_RECONCILIATION_SCHEDULER_JOB }}"
+          uri="${{ env.PUBLIC_BASE_URL }}/v1/cron/stripe/reconcile"
+          common_args=(
+            --location="${{ env.REGION }}"
+            --project="${{ env.PROJECT_ID }}"
+            --schedule="0 4 * * *"
+            --time-zone="America/Chicago"
+            --uri="$uri"
+            --http-method=POST
+            --attempt-deadline=300s
+            --max-retry-attempts=3
+          )
+
+          if gcloud scheduler jobs describe "$job" \
+            --location="${{ env.REGION }}" \
+            --project="${{ env.PROJECT_ID }}" >/dev/null 2>&1
+          then
+            gcloud scheduler jobs update http "$job" \
+              "${common_args[@]}" \
+              --update-headers="X-Cron-Secret=$DREBIN451_CRON_SECRET"
+          else
+            gcloud scheduler jobs create http "$job" \
+              "${common_args[@]}" \
+              --headers="X-Cron-Secret=$DREBIN451_CRON_SECRET"
+          fi
+
+          gcloud scheduler jobs describe "$job" \
+            --location="${{ env.REGION }}" \
+            --project="${{ env.PROJECT_ID }}" \
+            --format='table(name.basename(),schedule,timeZone,state,httpTarget.uri)'
 
   build-android:
     needs: [test, changes]

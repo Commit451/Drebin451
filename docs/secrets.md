@@ -20,7 +20,7 @@ encryption—so every base64 value below remains a GitHub Actions secret.
 | `STRIPE_SECRET_KEY` | Stripe server API key | Secret Manager → Cloud Run `STRIPE_SECRET_KEY` |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | Secret Manager → Cloud Run `STRIPE_WEBHOOK_SECRET` |
 | `STRIPE_PRO_PRICE_ID` | Production Stripe recurring price ID | Cloud Run `STRIPE_PRO_PRICE_ID` |
-| `DREBIN451_CRON_SECRET` | Storage reconciliation scheduler credential | Secret Manager → Cloud Run `DREBIN451_CRON_SECRET` |
+| `DREBIN451_CRON_SECRET` | Trusted storage and Stripe reconciliation scheduler credential | Secret Manager → Cloud Run `DREBIN451_CRON_SECRET` and Cloud Scheduler request header |
 | `DREBIN451_FIREBASE_WEB_API_KEY` | Public Firebase Identity Toolkit client key used for password-reset email requests | Plain Cloud Run `DREBIN451_FIREBASE_WEB_API_KEY` environment variable |
 | `DREBIN_API_KEY` | Upload-only Drebin451 API key used to publish the Android release | `Commit451/drebin451-release` action input |
 
@@ -32,11 +32,16 @@ identifier already observable in shipped Firebase clients, so it is passed to Cl
 environment variable instead. Non-secret URLs, regions, buckets, price IDs, and project/service
 names also stay in plain Cloud Run environment variables.
 
+The server deployment also upserts the `drebin451-stripe-reconciliation` Cloud Scheduler job. It
+posts to `/v1/cron/stripe/reconcile` every day at 4:00 AM in `America/Chicago`, authenticating with
+`X-Cron-Secret`. The endpoint scans the small user collection and rebuilds billing-related plans
+from Stripe's current subscription state; users with no billing history are skipped.
+
 Deployment authentication and runtime Firebase access are intentionally separate. The dedicated
 `github-actions-deploy@drebin451` account can deploy Cloud Run/Hosting, push Artifact Registry
-images, and update only the pre-provisioned runtime secrets. The Firebase Admin account is not used
-to deploy and should retain only the Firestore, Firebase Auth, FCM, and other explicitly required
-runtime roles.
+images, update only the pre-provisioned runtime secrets, and manage the dedicated Cloud Scheduler
+job with `roles/cloudscheduler.admin`. The Firebase Admin account is not used to deploy and should
+retain only the Firestore, Firebase Auth, FCM, and other explicitly required runtime roles.
 
 ## Local fallbacks
 

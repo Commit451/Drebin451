@@ -17,7 +17,11 @@ import com.commit451.drebin451.storage.B2ObjectStorage
 import com.commit451.drebin451.storage.StoredObject
 import com.commit451.drebin451.storage.StoredObjectInfo
 import com.commit451.drebin451.stripe.StripeBilling
+import com.commit451.drebin451.stripe.StripePlanReconciliationReport
 import com.commit451.drebin451.stripe.StripeSubscriptionUpdate
+import com.commit451.drebin451.stripe.decodeReconciliationDocuments
+import com.commit451.drebin451.stripe.reconcileScannedStripePlanUser
+import com.commit451.drebin451.stripe.reconcileStripePlanUsers
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.cloud.firestore.DocumentReference
 import com.google.cloud.firestore.Firestore
@@ -245,6 +249,78 @@ object Firebasis {
             log.warn("Failed to refresh Stripe plan for ${user.uid}", t)
             user
         }
+    }
+
+    /**
+     * Rebuilds every billing-related entitlement from Stripe's current subscription state. The
+     * collection scan is intentionally simple while the user count is small; users with neither a
+     * Stripe customer nor a locally stored Pro plan are skipped without making a Stripe request.
+     */
+    suspend fun reconcileStripePlans(): StripePlanReconciliationReport {
+        check(StripeBilling.isConfigured) { "Stripe billing is not configured" }
+        val documents = firestore.collection(CollectionUsers)
+            .get()
+            .await()
+            .documents
+        val decodedUsers = decodeReconciliationDocuments(
+            documents = documents,
+            decode = { document -> document.toObject(User::class.java) },
+            onFailure = { document, failure ->
+                log.warn(
+                    "Failed nightly Stripe reconciliation to decode Firestore user document ${document.id}",
+                    failure,
+                )
+            },
+        )
+        return reconcileStripePlanUsers(
+            users = decodedUsers.values,
+            decodeFailureCount = decodedUsers.failedCount,
+            refresh = { user -> reconcileStripePlan(user) },
+            onFailure = { user, failure ->
+                log.warn("Failed nightly Stripe reconciliation for user ${user.uid}", failure)
+            },
+        )
+    }
+
+    private suspend fun reconcileStripePlan(user: User): User =
+        reconcileScannedStripePlanUser(
+            scannedUser = user,
+            verifyAndDowngradeOrphan = { scanned ->
+                downgradeStripeOrphanIfStillCurrent(scanned.uid)
+            },
+            refreshCanonicalState = { current -> refreshStripePlan(current.uid) },
+        )
+
+    private suspend fun downgradeStripeOrphanIfStillCurrent(uid: String): User {
+        val ref = userDocument(uid)
+        val syncedAt = System.currentTimeMillis()
+        return firestore.runTransaction { txn ->
+            val current = txn.get(ref).get().toObject(User::class.java)
+                ?: throw IllegalArgumentException("User not found")
+            if (current.stripeCustomerId.isNotBlank()) return@runTransaction current
+
+            val currentPlan = PlanLimits.normalized(current.plan)
+            val updated = current.copy(
+                stripeSubscriptionStatus = "none",
+                plan = PlanIds.FREE,
+                planUpdatedAt = if (currentPlan != PlanIds.FREE || current.planUpdatedAt == 0L) {
+                    syncedAt
+                } else {
+                    current.planUpdatedAt
+                },
+                planSyncedAt = syncedAt,
+            )
+            txn.update(
+                ref,
+                mapOf(
+                    "stripeSubscriptionStatus" to updated.stripeSubscriptionStatus,
+                    "plan" to updated.plan,
+                    "planUpdatedAt" to updated.planUpdatedAt,
+                    "planSyncedAt" to updated.planSyncedAt,
+                ),
+            )
+            updated
+        }.await()
     }
 
     suspend fun applyStripeSubscriptionUpdate(

@@ -20,14 +20,28 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.time.Duration
 import java.time.Instant
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.abs
 
+internal val StripeConnectTimeout: Duration = Duration.ofSeconds(10)
+internal val StripeRequestTimeout: Duration = Duration.ofSeconds(30)
+
+internal fun stripeHttpClient(): HttpClient = HttpClient.newBuilder()
+    .connectTimeout(StripeConnectTimeout)
+    .build()
+
+internal fun stripeRequestBuilder(uri: URI, secretKey: String): HttpRequest.Builder =
+    HttpRequest.newBuilder()
+        .uri(uri)
+        .timeout(StripeRequestTimeout)
+        .header("Authorization", "Bearer $secretKey")
+
 object StripeBilling {
     private val log = LoggerFactory.getLogger(StripeBilling::class.java)
-    private val client = HttpClient.newHttpClient()
+    private val client = stripeHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
 
     private val secretKey: String?
@@ -295,9 +309,7 @@ object StripeBilling {
 
     private suspend fun postForm(path: String, params: List<Pair<String, String>>): JsonObject {
         val secret = requireSecretKey()
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("https://api.stripe.com$path"))
-            .header("Authorization", "Bearer $secret")
+        val request = stripeRequestBuilder(URI.create("https://api.stripe.com$path"), secret)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .POST(HttpRequest.BodyPublishers.ofString(formEncode(params)))
             .build()
@@ -307,9 +319,7 @@ object StripeBilling {
     private suspend fun get(path: String, params: List<Pair<String, String>>): JsonObject {
         val secret = requireSecretKey()
         val query = formEncode(params)
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("https://api.stripe.com$path?$query"))
-            .header("Authorization", "Bearer $secret")
+        val request = stripeRequestBuilder(URI.create("https://api.stripe.com$path?$query"), secret)
             .GET()
             .build()
         return send(request, path)
@@ -317,9 +327,7 @@ object StripeBilling {
 
     private suspend fun delete(path: String): JsonObject {
         val secret = requireSecretKey()
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("https://api.stripe.com$path"))
-            .header("Authorization", "Bearer $secret")
+        val request = stripeRequestBuilder(URI.create("https://api.stripe.com$path"), secret)
             .DELETE()
             .build()
         return send(request, path)

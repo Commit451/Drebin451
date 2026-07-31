@@ -23,6 +23,7 @@ import com.commit451.drebin451.model.PlanLimits
 import com.commit451.drebin451.model.VersionNote
 import com.commit451.drebin451.model.storageStatus
 import com.commit451.drebin451.stripe.StripeBilling
+import com.commit451.drebin451.stripe.StripePlanReconciliationReport
 import io.ktor.http.ContentDisposition
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -56,6 +57,7 @@ import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
+import io.ktor.server.routing.Route
 import io.ktor.server.routing.routing
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.Dispatchers
@@ -252,6 +254,8 @@ fun Application.module() {
                 ),
             )
         }
+
+        stripePlanReconciliationRoute()
 
         // Stripe sends unsigned browser redirects through Checkout/Portal, and signed lifecycle
         // updates through this webhook. Webhooks are the source of truth for Pro entitlement.
@@ -822,8 +826,34 @@ fun Application.module() {
     }
 }
 
-private suspend fun ApplicationCall.requireCronSecret(): Boolean {
-    val configured = configuredCronSecret()
+internal fun Route.stripePlanReconciliationRoute(
+    configuredSecret: () -> String? = ::configuredCronSecret,
+    stripeConfigured: () -> Boolean = { StripeBilling.isConfigured },
+    reconcile: suspend () -> StripePlanReconciliationReport = { Firebasis.reconcileStripePlans() },
+) {
+    post("/v1/cron/stripe/reconcile") {
+        if (!call.requireCronSecret(configuredSecret())) return@post
+        if (!stripeConfigured()) {
+            call.respond(
+                HttpStatusCode.ServiceUnavailable,
+                ErrorResponse("Stripe billing is not configured"),
+            )
+            return@post
+        }
+        val report = reconcile()
+        call.application.log.info("Nightly Stripe reconciliation completed: $report")
+        val status = if (report.failedCount > 0) {
+            HttpStatusCode.InternalServerError
+        } else {
+            HttpStatusCode.OK
+        }
+        call.respond(status, report)
+    }
+}
+
+private suspend fun ApplicationCall.requireCronSecret(
+    configured: String? = configuredCronSecret(),
+): Boolean {
     if (configured == null) {
         respond(
             HttpStatusCode.ServiceUnavailable,
