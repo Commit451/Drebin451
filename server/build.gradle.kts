@@ -46,4 +46,5 @@ dependencies {
     implementation(libs.aws.s3)
     implementation(libs.apk.parser)
     testImplementation(libs.kotlin.testJunit)
+    testImplementation(libs.ktor.server.test.host)
 }

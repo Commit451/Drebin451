@@ -1,6 +1,7 @@
 package com.commit451.drebin451.stripe
 
 import com.commit451.drebin451.model.PlanIds
+import java.net.URI
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,6 +9,18 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class StripeBillingTest {
+
+    @Test
+    fun `Stripe HTTP client and every request have bounded timeouts`() {
+        val client = stripeHttpClient()
+        val request = stripeRequestBuilder(
+            uri = URI.create("https://api.stripe.com/v1/customers"),
+            secretKey = "sk_test",
+        ).GET().build()
+
+        assertEquals(StripeConnectTimeout, client.connectTimeout().orElse(null))
+        assertEquals(StripeRequestTimeout, request.timeout().orElse(null))
+    }
 
     @Test
     fun `active configured subscription maps to Pro`() {
