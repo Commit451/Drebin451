@@ -1,5 +1,6 @@
 package com.commit451.drebin451.stripe
 
+import com.commit451.drebin451.model.BillingPrice
 import com.commit451.drebin451.model.BillingSession
 import com.commit451.drebin451.model.PlanIds
 import com.commit451.drebin451.model.User
@@ -40,9 +41,14 @@ internal fun stripeRequestBuilder(uri: URI, secretKey: String): HttpRequest.Buil
         .header("Authorization", "Bearer $secretKey")
 
 object StripeBilling {
+    private const val PRO_PRICE_CACHE_MS = 5L * 60L * 1000L
+
     private val log = LoggerFactory.getLogger(StripeBilling::class.java)
     private val client = stripeHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Volatile
+    private var cachedProPrice: CachedProPrice? = null
 
     private val secretKey: String?
         get() = System.getenv("STRIPE_SECRET_KEY")
@@ -102,6 +108,25 @@ object StripeBilling {
             },
         )
         return root.string("id") ?: error("Stripe did not return a customer id")
+    }
+
+    suspend fun proPrice(): BillingPrice {
+        val priceId = requireProPriceId()
+        val now = System.currentTimeMillis()
+        cachedProPrice
+            ?.takeIf { it.priceId == priceId && now - it.loadedAt < PRO_PRICE_CACHE_MS }
+            ?.let { return it.price }
+
+        val price = get(
+            path = "/v1/prices/${urlEncode(priceId)}",
+            params = emptyList(),
+        ).billingPrice(configuredProPriceId = priceId)
+        cachedProPrice = CachedProPrice(
+            priceId = priceId,
+            price = price,
+            loadedAt = System.currentTimeMillis(),
+        )
+        return price
     }
 
     suspend fun createCheckoutSession(user: User): BillingSession {
@@ -226,6 +251,14 @@ object StripeBilling {
         }
     }
 
+    internal fun billingPriceFromPayload(
+        payload: String,
+        configuredProPriceId: String,
+    ): BillingPrice = json
+        .parseToJsonElement(payload)
+        .jsonObject
+        .billingPrice(configuredProPriceId)
+
     internal fun planForSubscription(
         status: String,
         priceId: String,
@@ -307,6 +340,30 @@ object StripeBilling {
         )
     }
 
+    private fun JsonObject.billingPrice(configuredProPriceId: String): BillingPrice {
+        require(string("id") == configuredProPriceId) { "Stripe returned an unexpected Pro price" }
+        val unitAmount = get("unit_amount")?.jsonPrimitiveOrNull()?.longOrNull
+        require(unitAmount != null && unitAmount >= 0) { "Stripe Pro price has no fixed amount" }
+        val currency = string("currency") ?: error("Stripe Pro price has no currency")
+        val recurring = get("recurring")?.jsonObjectOrNull()
+            ?: error("Stripe Pro price is not recurring")
+        val interval = recurring.string("interval")
+            ?: error("Stripe Pro price has no billing interval")
+        val intervalCount = recurring.get("interval_count")
+            ?.jsonPrimitiveOrNull()
+            ?.longOrNull
+            ?: 1L
+        require(intervalCount in 1..Int.MAX_VALUE.toLong()) {
+            "Stripe Pro price has an invalid billing interval"
+        }
+        return BillingPrice(
+            unitAmount = unitAmount,
+            currency = currency.lowercase(),
+            interval = interval.lowercase(),
+            intervalCount = intervalCount.toInt(),
+        )
+    }
+
     private suspend fun postForm(path: String, params: List<Pair<String, String>>): JsonObject {
         val secret = requireSecretKey()
         val request = stripeRequestBuilder(URI.create("https://api.stripe.com$path"), secret)
@@ -319,7 +376,8 @@ object StripeBilling {
     private suspend fun get(path: String, params: List<Pair<String, String>>): JsonObject {
         val secret = requireSecretKey()
         val query = formEncode(params)
-        val request = stripeRequestBuilder(URI.create("https://api.stripe.com$path?$query"), secret)
+        val querySuffix = if (query.isEmpty()) "" else "?$query"
+        val request = stripeRequestBuilder(URI.create("https://api.stripe.com$path$querySuffix"), secret)
             .GET()
             .build()
         return send(request, path)
@@ -402,4 +460,10 @@ object StripeBilling {
 
     private fun kotlinx.serialization.json.JsonElement.jsonPrimitiveOrNull(): JsonPrimitive? =
         this as? JsonPrimitive
+
+    private data class CachedProPrice(
+        val priceId: String,
+        val price: BillingPrice,
+        val loadedAt: Long,
+    )
 }

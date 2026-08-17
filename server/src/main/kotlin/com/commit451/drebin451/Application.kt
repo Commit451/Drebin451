@@ -16,6 +16,7 @@ import com.commit451.drebin451.model.ApiKeyCreated
 import com.commit451.drebin451.model.AppVersion
 import com.commit451.drebin451.model.BatchDeleteVersionsRequest
 import com.commit451.drebin451.model.BatchDeleteVersionsResponse
+import com.commit451.drebin451.model.BillingPrice
 import com.commit451.drebin451.model.CreateApiKeyRequest
 import com.commit451.drebin451.model.PasswordResetRequest
 import com.commit451.drebin451.model.PlanIds
@@ -231,6 +232,8 @@ fun Application.module() {
         get("/$prefix/config") {
             call.respond(Firebasis.getConfig())
         }
+
+        billingPriceRoute()
 
         // Public password-reset flow. Firebase sends the email; the server intentionally responds
         // the same way for unknown emails and throttled repeat requests so the endpoint cannot be
@@ -823,6 +826,19 @@ fun Application.module() {
             call.response.header(HttpHeaders.CacheControl, "public, max-age=86400")
             call.respondBytes(blob.bytes, ContentType.parse(blob.contentType ?: "image/png"))
         }
+    }
+}
+
+/**
+ * Public price shown on the logged-out Pricing screen. The server resolves the configured Stripe
+ * Price so presentation cannot drift from the Price used to create Checkout sessions.
+ */
+internal fun Route.billingPriceRoute(
+    proPrice: suspend () -> BillingPrice = { StripeBilling.proPrice() },
+) {
+    get("/v1/billing/price") {
+        call.response.header(HttpHeaders.CacheControl, "public, max-age=300")
+        call.respond(proPrice())
     }
 }
 

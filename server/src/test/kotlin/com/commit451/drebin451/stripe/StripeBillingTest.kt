@@ -11,6 +11,29 @@ import kotlin.test.assertTrue
 class StripeBillingTest {
 
     @Test
+    fun `configured recurring price becomes the public Pro price`() {
+        val price = StripeBilling.billingPriceFromPayload(
+            payload = """
+                {
+                  "id": "price_pro",
+                  "currency": "usd",
+                  "unit_amount": 500,
+                  "recurring": {
+                    "interval": "month",
+                    "interval_count": 1
+                  }
+                }
+            """.trimIndent(),
+            configuredProPriceId = "price_pro",
+        )
+
+        assertEquals(500, price.unitAmount)
+        assertEquals("usd", price.currency)
+        assertEquals("month", price.interval)
+        assertEquals(1, price.intervalCount)
+    }
+
+    @Test
     fun `Stripe HTTP client and every request have bounded timeouts`() {
         val client = stripeHttpClient()
         val request = stripeRequestBuilder(

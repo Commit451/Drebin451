@@ -54,8 +54,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.commit451.drebin451.download.DREBIN451_LATEST_APK_DOWNLOAD_URL
 import com.commit451.drebin451.download.shouldShowDrebin451ApkDownload
+import com.commit451.drebin451.model.BillingPrice
 import com.commit451.drebin451.model.PlanLimits
 import com.commit451.drebin451.navigation.AboutRoute
 import com.commit451.drebin451.navigation.LocalAppNavigator
@@ -156,6 +159,13 @@ fun AboutScreen() {
 @Composable
 fun PricingScreen() {
     val navigator = LocalAppNavigator.current
+    val vm: PricingViewModel = viewModel { PricingViewModel() }
+    val state by vm.state.collectAsStateWithLifecycle()
+    val proPrice = state.proPrice?.let(::formatBillingPrice) ?: if (state.loading) {
+        "Loading price…"
+    } else {
+        "Price unavailable"
+    }
 
     LandingPageChrome(
         currentPage = PublicPage.Pricing,
@@ -168,6 +178,7 @@ fun PricingScreen() {
         Spacer(Modifier.height(28.dp))
         PricingPlans(
             compact = compact,
+            proPrice = proPrice,
             onSignUp = { navigator.push(LoginRoute(startOnSignUp = true)) },
         )
         Spacer(Modifier.height(28.dp))
@@ -629,6 +640,7 @@ private fun PricingHero() {
 @Composable
 private fun PricingPlans(
     compact: Boolean,
+    proPrice: String,
     onSignUp: () -> Unit,
 ) {
     val freeFeatures = listOf(
@@ -658,7 +670,7 @@ private fun PricingPlans(
             )
             PricingCard(
                 "Pro",
-                "Subscription",
+                proPrice,
                 "For teams shipping larger APKs or keeping more history.",
                 proFeatures,
                 true,
@@ -678,7 +690,7 @@ private fun PricingPlans(
             )
             PricingCard(
                 "Pro",
-                "Subscription",
+                proPrice,
                 "For teams shipping larger APKs or keeping more history.",
                 proFeatures,
                 true,
@@ -687,6 +699,45 @@ private fun PricingPlans(
             )
         }
     }
+}
+
+internal fun formatBillingPrice(price: BillingPrice): String {
+    val currency = price.currency.lowercase()
+    val fractionDigits = when (currency) {
+        "bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg", "rwf", "ugx",
+        "vnd", "vuv", "xaf", "xof", "xpf" -> 0
+
+        "bhd", "jod", "kwd", "omr", "tnd" -> 3
+        else -> 2
+    }
+    val divisor = when (fractionDigits) {
+        0 -> 1L
+        3 -> 1_000L
+        else -> 100L
+    }
+    val whole = price.unitAmount / divisor
+    val remainder = price.unitAmount % divisor
+    val numericAmount = if (remainder == 0L) {
+        whole.toString()
+    } else {
+        "$whole.${remainder.toString().padStart(fractionDigits, '0')}"
+    }
+    val amount = when (currency) {
+        "usd" -> "\$$numericAmount"
+        "eur" -> "€$numericAmount"
+        "gbp" -> "£$numericAmount"
+        "jpy" -> "¥$numericAmount"
+        "cad" -> "CA\$$numericAmount"
+        "aud" -> "A\$$numericAmount"
+        else -> "${currency.uppercase()} $numericAmount"
+    }
+    val interval = price.interval.lowercase()
+    val cadence = if (price.intervalCount == 1) {
+        interval
+    } else {
+        "${price.intervalCount} ${interval}s"
+    }
+    return "$amount / $cadence"
 }
 
 @Composable

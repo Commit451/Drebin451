@@ -11,6 +11,7 @@ import com.commit451.drebin451.model.App
 import com.commit451.drebin451.model.AppVersion
 import com.commit451.drebin451.model.BatchDeleteVersionsRequest
 import com.commit451.drebin451.model.BatchDeleteVersionsResponse
+import com.commit451.drebin451.model.BillingPrice
 import com.commit451.drebin451.model.BillingSession
 import com.commit451.drebin451.model.Config
 import com.commit451.drebin451.model.CreateApiKeyRequest
@@ -87,6 +88,10 @@ object Api {
 
     suspend fun createBillingPortalSession(): BillingSession =
         client.post("$baseUrl/billing/portal").bodyOrThrow()
+
+    /** Public recurring price configured for the Pro plan. */
+    suspend fun proPlanPrice(): BillingPrice =
+        client.get("$baseUrl/billing/price").bodyOrThrow()
 
     /** App-wide config (kill-switch + maintenance message), read on splash. Unauthenticated. */
     suspend fun config(): Config =
