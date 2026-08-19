@@ -158,6 +158,17 @@ internal fun newVersionPushDeepLink(shareId: String, versionId: String): String 
     return "$DEEP_LINK_BASE/app/$shareId/releases/$versionId"
 }
 
+internal fun appIconUrl(
+    publicBaseUrl: String,
+    prefix: String,
+    appId: String,
+    cacheKey: String,
+): String {
+    require(appId.isNotBlank()) { "appId is required" }
+    require(cacheKey.isNotBlank()) { "cacheKey is required" }
+    return "${publicBaseUrl.trimEnd('/')}/$prefix/apps/$appId/icon?v=$cacheKey"
+}
+
 fun main() {
     Firebasis.initialize()
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
@@ -521,9 +532,11 @@ fun Application.module() {
                     Firebasis.uploadFile(storagePath, uploadFile, AppVersion.CONTENT_TYPE_APK)
 
                     // Capture the launcher icon once: store it (and set the app's imageUrl) only while the
-                    // app has no icon yet — the first upload that yields a raster one. Served publicly by
-                    // GET /apps/{id}/icon.
-                    val existingImageUrl = Firebasis.getApp(appId)?.imageUrl ?: ""
+                    // app has no icon yet — the first upload that yields a raster one. The first icon-
+                    // producing upload's UUID is added to the URL so deleting and recreating the same
+                    // deterministic app document cannot reuse Coil's old cache key.
+                    val existingApp = Firebasis.getApp(appId)
+                    val existingImageUrl = existingApp?.imageUrl.orEmpty()
                     val imageUrl = if (existingImageUrl.isBlank() && info.icon != null) {
                         Firebasis.uploadBytes(
                             iconStoragePath,
@@ -531,7 +544,7 @@ fun Application.module() {
                             info.icon.contentType,
                         )
                         iconUploaded = true
-                        "$publicBaseUrl/$prefix/apps/$appId/icon"
+                        appIconUrl(publicBaseUrl, prefix, appId, versionId)
                     } else {
                         existingImageUrl
                     }
@@ -809,8 +822,7 @@ fun Application.module() {
         }
 
         // Public, unauthenticated launcher icon for an app — this is App.imageUrl, loaded by the
-        // client with Coil. The blob lives at a deterministic per-app path; its stored content type
-        // drives the response.
+        // client with Coil. Its unique query parameter is generated when the icon is first uploaded.
         get("/$prefix/apps/{id}/icon") {
             val id = call.parameters["id"] ?: throw IllegalArgumentException("Missing id")
             val app = Firebasis.getApp(id) ?: run {

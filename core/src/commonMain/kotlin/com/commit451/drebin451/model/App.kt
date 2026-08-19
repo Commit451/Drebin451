@@ -26,7 +26,7 @@ data class App(
     /**
      * Public URL of the app's launcher icon, served by `GET /v1/apps/{id}/icon`. Extracted from
      * the APK and stored once (on the first upload that yields a raster icon); blank when none was
-     * found. Clients load it with Coil.
+     * found. A unique query parameter prevents clients from reusing an icon cached for a deleted app.
      */
     val imageUrl: String = "",
     /**
