@@ -1,8 +1,7 @@
 package com.commit451.drebin451.auth
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -10,6 +9,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.unit.dp
+import com.mmk.kmpauth.uihelper.google.GoogleSignInButton
 import kotlinx.coroutines.launch
 
 /**
@@ -28,9 +30,14 @@ actual fun LoginButtons(
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
 
-    Button(
+    GoogleSignInButton(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .alpha(if (enabled && !busy) 1f else 0.38f),
+        text = if (busy) "Signing in…" else "Continue with Google",
         onClick = {
-            if (!enabled || busy) return@Button
+            if (!enabled || busy) return@GoogleSignInButton
             busy = true
             scope.launch {
                 val result = runCatching { signInWithGoogle(existingEmail, existingPassword) }
@@ -38,11 +45,7 @@ actual fun LoginButtons(
                 onResult(result)
             }
         },
-        enabled = enabled && !busy,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(if (busy) "Signing in…" else "Continue with Google")
-    }
+    )
 }
 
 /**

@@ -196,7 +196,7 @@ kotlin {
             implementation(libs.ktor.client.cio)
 
             // Firebase + Google auth. The gitlive Firebase Auth fork is in webMain too;
-            // kmpauth is Android-only since its publication has no web targets.
+            // Drebin451 keeps its custom Google credential-linking flow on Android.
             implementation(project.dependencies.platform(libs.firebase.bom))
             implementation(libs.firebase.auth.gitlive)
             // FCM: subscribe/unsubscribe to an app's update topic when following.
@@ -205,8 +205,6 @@ kotlin {
             // is stored in noBackupFilesDir so app reinstall/restore doesn't resurrect old toggles.
             implementation(libs.androidx.datastore.preferences)
             implementation(libs.kmpauth.google)
-            implementation(libs.kmpauth.firebase)
-            implementation(libs.kmpauth.uihelper)
         }
         commonMain.dependencies {
             api(projects.core)
@@ -216,6 +214,7 @@ kotlin {
             implementation(compose.materialIconsExtended)
             implementation(libs.compose.ui)
             implementation(libs.compose.components.resources)
+            implementation(libs.kmpauth.uihelper)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.androidx.lifecycle.viewmodelNavigation3)
@@ -257,11 +256,4 @@ kotlin {
 
 tasks.matching { it.name.startsWith("compile") || it.name.endsWith("SourcesJar") }.configureEach {
     dependsOn(generateAppBuildInfo, generateFirebaseWebConfig)
-}
-
-// kmpauth-firebase still depends transitively on upstream dev.gitlive:firebase-auth,
-// whose classes are identical to (and would collide with) our com.jawnnypoo fork.
-// The fork is what we want everywhere, so kick the upstream off every configuration.
-configurations.configureEach {
-    exclude(group = "dev.gitlive")
 }
