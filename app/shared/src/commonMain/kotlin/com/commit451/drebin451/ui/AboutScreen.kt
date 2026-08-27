@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -204,50 +205,55 @@ private fun LandingPageChrome(
             val compact = maxWidth < 760.dp
             val horizontalMargin = ContentLayout.horizontalMargin(maxWidth, minimum = 24.dp)
 
-            Column(Modifier.fillMaxSize()) {
-                LandingTopBar(
-                    compact = compact,
-                    currentPage = currentPage,
-                    horizontalMargin = horizontalMargin,
-                    onHome = onHome,
-                    onPricing = onPricing,
-                    onLogIn = onLogIn,
-                    onSignUp = onSignUp,
-                )
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                ) {
-                    val density = LocalDensity.current
-                    val viewportHeightPx = with(density) { maxHeight.roundToPx() }
-                    var contentHeightPx by remember { mutableStateOf(0) }
-                    var footerHeightPx by remember { mutableStateOf(0) }
-                    val footerSpacerHeight = with(density) {
-                        maxOf(0, viewportHeightPx - contentHeightPx - footerHeightPx).toDp()
-                    }
-
-                    Column(
+            // These landing pages are web-only surfaces (Android keeps the splash → auth flow);
+            // SelectionContainer makes all marketing text copy/pasteable in the browser while
+            // leaving clicks on buttons/nav untouched.
+            SelectionContainer {
+                Column(Modifier.fillMaxSize()) {
+                    LandingTopBar(
+                        compact = compact,
+                        currentPage = currentPage,
+                        horizontalMargin = horizontalMargin,
+                        onHome = onHome,
+                        onPricing = onPricing,
+                        onLogIn = onLogIn,
+                        onSignUp = onSignUp,
+                    )
+                    BoxWithConstraints(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .safeContentPadding(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                            .weight(1f)
+                            .fillMaxWidth(),
                     ) {
+                        val density = LocalDensity.current
+                        val viewportHeightPx = with(density) { maxHeight.roundToPx() }
+                        var contentHeightPx by remember { mutableStateOf(0) }
+                        var footerHeightPx by remember { mutableStateOf(0) }
+                        val footerSpacerHeight = with(density) {
+                            maxOf(0, viewportHeightPx - contentHeightPx - footerHeightPx).toDp()
+                        }
+
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = horizontalMargin, vertical = 48.dp)
-                                .widthIn(max = 1120.dp)
-                                .onSizeChanged { contentHeightPx = it.height },
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .safeContentPadding(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            content(compact)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = horizontalMargin, vertical = 48.dp)
+                                    .widthIn(max = 1120.dp)
+                                    .onSizeChanged { contentHeightPx = it.height },
+                            ) {
+                                content(compact)
+                            }
+                            Spacer(Modifier.height(footerSpacerHeight))
+                            LandingFooter(
+                                horizontalMargin = horizontalMargin,
+                                modifier = Modifier.onSizeChanged { footerHeightPx = it.height },
+                            )
                         }
-                        Spacer(Modifier.height(footerSpacerHeight))
-                        LandingFooter(
-                            horizontalMargin = horizontalMargin,
-                            modifier = Modifier.onSizeChanged { footerHeightPx = it.height },
-                        )
                     }
                 }
             }
