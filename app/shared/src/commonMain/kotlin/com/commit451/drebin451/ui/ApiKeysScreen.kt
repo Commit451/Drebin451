@@ -55,7 +55,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.commit451.drebin451.model.ApiKey
 import com.commit451.drebin451.model.ApiKeyCreated
 import com.commit451.drebin451.navigation.LocalAppNavigator
-import com.commit451.drebin451.util.formatDateTime
+import com.commit451.drebin451.util.formatRelativeTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -219,12 +219,12 @@ private fun ApiKeyCard(key: ApiKey, onRevoke: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Created ${formatDateTime(key.createdAt)}",
+                "Created ${formatRelativeTime(key.createdAt)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                if (key.lastUsedAt > 0) "Last used ${formatDateTime(key.lastUsedAt)}" else "Never used",
+                if (key.lastUsedAt > 0) "Last used ${formatRelativeTime(key.lastUsedAt)}" else "Never used",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
