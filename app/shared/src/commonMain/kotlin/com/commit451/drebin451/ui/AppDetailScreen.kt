@@ -143,7 +143,7 @@ internal fun AppDetailScreen(route: AppDetailRoute) {
         }
     }
 
-    // The app itself is gone — leave the now-empty detail screen.
+    // An owned app is removed optimistically; deletion finishes outside this route's lifetime.
     LaunchedEffect(state.deleted) {
         if (state.deleted) navigator.popIgnoringInterceptor()
     }

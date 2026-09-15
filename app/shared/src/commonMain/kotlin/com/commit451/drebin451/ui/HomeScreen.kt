@@ -88,10 +88,10 @@ fun HomeScreen() {
         }
     }
 
-    // Re-fetch whenever Home comes back to the foreground so a delete made on an app's detail
-    // screen is reflected here without a spinner flash.
+    // Keep normal resume refreshes, but returning after an optimistic app delete uses the local
+    // list. Only a deletion failure requires reconciliation with the backend.
     LifecycleResumeEffect(Unit) {
-        vm.silentRefresh()
+        vm.onResume()
         onPauseOrDispose { }
     }
 

@@ -236,6 +236,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
         }
         // The web target (js + wasmJs) shares the gitlive Firebase Auth actuals,
         // since the fork at com.jawnnypoo:firebase-auth publishes both variants.

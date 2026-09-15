@@ -23,11 +23,19 @@ class HomeViewModel : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
     private var appListRefreshGeneration = 0L
+    private val appDeletionObserver = HomeAppDeletionObserver(
+        coordinator = appDeletionCoordinator,
+        homeState = _state,
+        refreshLists = ::silentRefresh,
+        refreshStorage = { checkStorageStatus() },
+        currentUserId = { UserManager.current()?.uid },
+    )
 
     init {
         refreshCurrentUser()
         load()
         checkStorageStatus()
+        viewModelScope.launch { appDeletionObserver.observe() }
         viewModelScope.launch {
             versionDeletionCoordinator.completed.collect {
                 silentRefresh()
@@ -88,7 +96,7 @@ class HomeViewModel : ViewModel() {
                 if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
-                        apps = yours.items,
+                        apps = appDeletionCoordinator.state.value.visibleApps(yours.items),
                         sharedApps = shared.items,
                         nextPageToken = yours.nextPageToken,
                         sharedNextPageToken = shared.nextPageToken,
@@ -131,7 +139,7 @@ class HomeViewModel : ViewModel() {
                 if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
-                        apps = yours.items,
+                        apps = appDeletionCoordinator.state.value.visibleApps(yours.items),
                         sharedApps = shared.items,
                         nextPageToken = yours.nextPageToken,
                         sharedNextPageToken = shared.nextPageToken,
@@ -154,9 +162,9 @@ class HomeViewModel : ViewModel() {
     }
 
     /**
-     * Reloads the app lists without any spinner — used to pick up changes (e.g. an app deleted
-     * from its detail screen) when Home resumes. A transient failure keeps the cached lists rather
-     * than surfacing an error.
+     * Reloads the app lists without any spinner. Normal resumes and failed optimistic deletes
+     * reconcile with the backend; successful app deletes only update the cached list in place.
+     * A transient failure keeps the cached lists rather than surfacing an error.
      */
     fun silentRefresh() {
         val generation = ++appListRefreshGeneration
@@ -169,7 +177,7 @@ class HomeViewModel : ViewModel() {
                 if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
-                        apps = yours.items,
+                        apps = appDeletionCoordinator.state.value.visibleApps(yours.items),
                         sharedApps = shared.items,
                         nextPageToken = yours.nextPageToken,
                         sharedNextPageToken = shared.nextPageToken,
@@ -188,6 +196,8 @@ class HomeViewModel : ViewModel() {
         }
     }
 
+    fun onResume() = appDeletionObserver.onResume()
+
     fun loadMore(tab: HomeTab) {
         val current = _state.value
         val token = when (tab) {
@@ -195,6 +205,7 @@ class HomeViewModel : ViewModel() {
             HomeTab.Shared -> current.sharedNextPageToken
         } ?: return
         if (current.loading || current.refreshing || current.loadingMore) return
+        val generation = appListRefreshGeneration
         viewModelScope.launch {
             _state.update { it.copy(loadingMore = true) }
             try {
@@ -202,8 +213,10 @@ class HomeViewModel : ViewModel() {
                     HomeTab.Yours -> Api.apps(pageToken = token)
                     HomeTab.Shared -> Api.sharedApps(pageToken = token)
                 }
+                if (generation != appListRefreshGeneration) return@launch
                 _state.update { state -> state.withAdditionalPage(tab, page) }
             } catch (t: Throwable) {
+                if (generation != appListRefreshGeneration) return@launch
                 _state.update {
                     it.copy(
                         loadingMore = false,
@@ -220,7 +233,9 @@ class HomeViewModel : ViewModel() {
     ): HomeState =
         when (tab) {
             HomeTab.Yours -> copy(
-                apps = (apps + page.items).distinctBy { it.id },
+                apps = appDeletionCoordinator.state.value.visibleApps(
+                    (apps + page.items).distinctBy { it.id }
+                ),
                 nextPageToken = page.nextPageToken,
                 loadingMore = false,
             )

@@ -312,16 +312,10 @@ class AppDetailViewModel(initialApp: App) : ViewModel() {
         }
     }
 
-    /** Deletes the whole app (and all versions); on success [AppDetailState.deleted] tells the screen to leave. */
+    /** Leaves immediately; the app-scoped coordinator finishes deletion and Home handles failures. */
     fun deleteApp() {
-        viewModelScope.launch {
-            try {
-                Api.deleteApp(appId)
-                _state.update { it.copy(deleted = true) }
-            } catch (t: Throwable) {
-                _state.update { it.copy(message = t.message ?: "Delete failed") }
-            }
-        }
+        appDeletionCoordinator.delete(_state.value.app)
+        _state.update { it.copy(deleted = true) }
     }
 
     /**
